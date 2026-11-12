@@ -10,10 +10,14 @@
 <body class="play-mode">
   <header class="appbar">
     <div class="brand">Sudoku <span>Trainer</span></div>
-    <nav class="app-tabs" role="tablist">
-      <button class="app-tab active" data-app="play" role="tab">Play</button>
-      <button class="app-tab" data-app="learn" role="tab">Learn techniques</button>
-    </nav>
+    <div class="bar-play">
+      <div id="timer-wrap" class="timer-wrap">
+        <span id="timer" class="timer">0:00</span>
+        <button id="p-pause" class="icon-btn" title="Pause">❚❚</button>
+      </div>
+      <button id="p-settings" class="icon-btn" title="Settings">⚙</button>
+    </div>
+    <button class="app-tab bar-back" data-app="play">← Back to puzzle</button>
   </header>
 
   <!-- ================= PLAY ================= -->
@@ -29,17 +33,6 @@
     </div>
 
     <aside class="play-controls">
-      <div class="topline">
-        <div id="timer-wrap" class="timer-wrap">
-          <span id="timer" class="timer">0:00</span>
-          <button id="p-pause" class="icon-btn" title="Pause">❚❚</button>
-        </div>
-        <div class="top-actions">
-          <button id="p-new" class="pbtn">New puzzle</button>
-          <button id="p-settings" class="icon-btn" title="Settings">⚙</button>
-        </div>
-      </div>
-
       <div id="setup-panel" class="setup-panel">
         <div class="panel-title">Setting up</div>
         <p>Select cells and type the given digits (Backspace clears). Givens so far: <b id="given-count">0</b>.</p>
@@ -58,17 +51,17 @@
         <div class="digits" id="digits"></div>
         <div class="modes">
           <button class="mode-btn active" data-mode="normal" title="Normal digits (Z)"><span class="mi mi-normal">1</span>Normal</button>
-          <button class="mode-btn" data-mode="corner" title="Corner marks (X, or hold Shift)"><span class="mi mi-corner">1<i>2</i></span>Corner</button>
-          <button class="mode-btn" data-mode="centre" title="Centre marks (C, or hold Ctrl)"><span class="mi mi-centre">12</span>Centre</button>
+          <button class="mode-btn" data-mode="centre" title="Candidates (C, or hold Shift/Ctrl)"><span class="mi mi-centre">12</span>Notes</button>
           <button class="mode-btn" data-mode="colour" title="Colour (V)"><span class="mi mi-colour"></span>Colour</button>
+          <button id="p-delete" class="mode-btn" title="Erase (Backspace)"><span class="mi">⌫</span>Delete</button>
         </div>
-        <button id="p-delete" class="key-wide">Delete</button>
         <div class="actions">
           <button id="p-undo" class="pbtn" title="Undo (Ctrl+Z)">Undo</button>
           <button id="p-redo" class="pbtn" title="Redo (Ctrl+Y)">Redo</button>
           <button id="p-restart" class="pbtn" title="Clear your progress">Restart</button>
           <button id="p-check" class="pbtn" title="Check for mistakes">Check</button>
         </div>
+        <button id="p-new" class="key-wide primary">New puzzle</button>
       </div>
 
       <div id="assistant" class="assistant">
@@ -126,6 +119,7 @@
   <div id="dlg-settings" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="dlg-set-title">
     <div class="modal-card small">
       <div class="modal-head"><h3 id="dlg-set-title">Settings</h3><button class="icon-btn" data-close title="Close">✕</button></div>
+      <button class="app-tab learn-link" data-app="learn"><b>Learn techniques</b><span>Step-by-step lessons and practice for advanced patterns</span></button>
       <label class="setting"><input type="checkbox" data-set="conflicts"> Show conflicts in red</label>
       <label class="setting"><input type="checkbox" data-set="sameDigit"> Highlight cells with the same digit</label>
       <label class="setting"><input type="checkbox" data-set="seen"> Shade the row, column and box of the selected cell</label>
@@ -135,9 +129,8 @@
         <div class="small-label">Keyboard</div>
         <table>
           <tr><td><kbd>1</kbd>–<kbd>9</kbd></td><td>Enter in the current mode</td></tr>
-          <tr><td><kbd>Shift</kbd> + digit</td><td>Corner mark</td></tr>
-          <tr><td><kbd>Ctrl</kbd> + digit</td><td>Centre mark</td></tr>
-          <tr><td><kbd>Z</kbd> <kbd>X</kbd> <kbd>C</kbd> <kbd>V</kbd></td><td>Normal / Corner / Centre / Colour mode</td></tr>
+          <tr><td><kbd>Shift</kbd>/<kbd>Ctrl</kbd> + digit</td><td>Candidate (centre note)</td></tr>
+          <tr><td><kbd>Z</kbd> <kbd>C</kbd> <kbd>V</kbd></td><td>Normal / Notes / Colour mode</td></tr>
           <tr><td><kbd>Space</kbd></td><td>Next mode</td></tr>
           <tr><td>Drag, <kbd>Shift</kbd>/<kbd>Ctrl</kbd>+click</td><td>Select several cells</td></tr>
           <tr><td>Double-click</td><td>Select all cells with that digit</td></tr>
@@ -146,7 +139,7 @@
           <tr><td><kbd>Ctrl</kbd>+<kbd>Z</kbd> / <kbd>Ctrl</kbd>+<kbd>Y</kbd></td><td>Undo / Redo</td></tr>
           <tr><td><kbd>Ctrl</kbd>+<kbd>A</kbd>, <kbd>Esc</kbd></td><td>Select all / deselect</td></tr>
         </table>
-        <p class="small-note">Some browsers reserve Ctrl+1…9 for switching tabs. If that happens, use the C key for centre mode.</p>
+        <p class="small-note">Some browsers reserve Ctrl+1…9 for switching tabs. If that happens, use Shift or the C key for notes mode.</p>
       </div>
     </div>
   </div>

@@ -1,4 +1,4 @@
-// Play screen: a full sudoku player with normal / corner / centre / colour entry,
+// Play screen: a full sudoku player with normal / centre (candidate) / colour entry,
 // multi-cell selection, undo/redo, timer, checking, photo import and a step-by-step assistant.
 (function () {
   'use strict';
@@ -7,7 +7,7 @@
   const name = E.cellName;
   const SKEY = 'sudokuTrainer.player.v2', SETKEY = 'sudokuTrainer.settings', TABKEY = 'sudokuTrainer.tab';
   const COLOURS = [null, '#c9ccd1', '#f3a6a6', '#f7c58c', '#f2e188', '#a6dd9f', '#9ccdee', '#bcb2f0', '#efb1da', '#9fe1d1'];
-  const MODES = ['normal', 'corner', 'centre', 'colour'];
+  const MODES = ['normal', 'centre', 'colour'];
 
   const settings = { conflicts: true, sameDigit: true, seen: true, autoClean: true, timer: true };
   try { Object.assign(settings, JSON.parse(localStorage.getItem(SETKEY)) || {}); } catch (e) { /* ignore */ }
@@ -62,6 +62,8 @@
         centre: d.centre || blank(), colour: d.colour || blank(), log: d.log || [], elapsed: d.elapsed || 0,
         solved: !!d.solved, mode: MODES.includes(d.mode) ? d.mode : 'normal',
       });
+      // Corner marks are no longer supported: fold any saved ones into the centre marks.
+      for (let i = 0; i < 81; i++) { st.centre[i] |= st.corner[i]; st.corner[i] = 0; }
       computeSolution();
       return true;
     } catch (e) { return false; }
@@ -164,10 +166,6 @@
       } else if (preview[i]) {
         html += `<div class="pv preview">${preview[i]}</div>`;
       } else {
-        if (st.corner[i]) {
-          html += '<div class="pcorner">' + E.digitsOf(st.corner[i]).map((d, k) =>
-            `<span class="k${k}${selDigit === d ? ' hl' : ''}">${d}</span>`).join('') + '</div>';
-        }
         if (st.centre[i]) {
           const ds = E.digitsOf(st.centre[i]);
           html += `<div class="pcentre n${ds.length}">` + ds.map(d => {
@@ -189,7 +187,7 @@
     $('assistant').classList.toggle('hidden', setup);
     $('given-count').textContent = st.values.filter(Boolean).length;
     const mode = setup ? 'normal' : st.mode;
-    document.querySelectorAll('.mode-btn').forEach(b => {
+    document.querySelectorAll('.mode-btn[data-mode]').forEach(b => {
       b.classList.toggle('active', b.dataset.mode === mode);
       b.disabled = setup && b.dataset.mode !== 'normal';
     });
@@ -244,7 +242,7 @@
           if (settings.autoClean) for (const p of E.PEERS[i]) { st.centre[p] &= ~(1 << d); st.corner[p] &= ~(1 << d); }
         }
       } else {
-        const arr = mode === 'corner' ? st.corner : st.centre;
+        const arr = st.centre;
         const empty = cells.filter(i => !st.values[i]);
         if (!empty.length) return;
         const bit = 1 << d;
@@ -266,7 +264,7 @@
     mutate(() => {
       if (st.mode === 'colour') { for (const i of all) st.colour[i] = 0; return; }
       if (cells.some(i => st.values[i])) { for (const i of cells) st.values[i] = 0; return; }
-      const layers = st.mode === 'corner' ? ['corner'] : st.mode === 'centre' ? ['centre'] : ['centre', 'corner'];
+      const layers = ['centre'];
       if (cells.some(i => layers.some(l => st[l][i]))) { for (const i of cells) for (const l of layers) st[l][i] = 0; return; }
       for (const i of all) st.colour[i] = 0;
     });
@@ -372,7 +370,7 @@
       unsure: new Set(), wrong: new Set(), elapsed: 0, runningSince: null, paused: false, solved: false, mode: 'normal' });
     clearStep();
     hideMsg('setup-msg');
-    msg('play-msg', 'info', '<p>Select a cell and type a digit. Hold <kbd>Shift</kbd> for corner marks, <kbd>Ctrl</kbd> for centre marks, or pick a mode on the right. Stuck? Press <b>Hint</b>.</p>');
+    msg('play-msg', 'info', '<p>Select a cell and type a digit. Hold <kbd>Shift</kbd> or <kbd>Ctrl</kbd> to add candidates, or pick a mode next to the digits. Stuck? Press <b>Hint</b>.</p>');
     startTimer();
     render();
   }
@@ -664,6 +662,7 @@
   // ---------- app tabs ----------
   function showApp(which) {
     const play = which === 'play';
+    closeModals();
     $('play-app').classList.toggle('hidden', !play);
     $('learn-app').classList.toggle('hidden', play);
     document.body.classList.toggle('play-mode', play);
@@ -688,7 +687,7 @@
       e.preventDefault();
       const d = +m[2];
       if (d === 0) { del(); return; }
-      enter(d, e.shiftKey ? 'corner' : ctrl ? 'centre' : null);
+      enter(d, e.shiftKey || ctrl ? 'centre' : null);
       return;
     }
     if (ctrl || e.altKey) return;
@@ -702,7 +701,6 @@
       case ' ': if (st.phase === 'play') setMode(MODES[(MODES.indexOf(st.mode) + 1) % MODES.length]); e.preventDefault(); break;
       default:
         if (k === 'z') setMode('normal');
-        else if (k === 'x') setMode('corner');
         else if (k === 'c') setMode('centre');
         else if (k === 'v') setMode('colour');
     }
@@ -727,7 +725,7 @@
     buildKeypad();
     initBoardPointer();
     initCropDrag();
-    document.querySelectorAll('.mode-btn').forEach(b => b.addEventListener('click', () => setMode(b.dataset.mode)));
+    document.querySelectorAll('.mode-btn[data-mode]').forEach(b => b.addEventListener('click', () => setMode(b.dataset.mode)));
     $('p-delete').addEventListener('click', del);
     $('p-undo').addEventListener('click', doUndo);
     $('p-redo').addEventListener('click', doRedo);
