@@ -259,8 +259,31 @@ body.play-mode { background: #fff; }
 @media (max-width: 900px) {
   :root { --pcell: min(calc((100vw - 26px) / 9), 60px); }
   .play { flex-direction: column; align-items: center; gap: 16px; padding-top: 12px; }
-  .play-controls { width: calc(var(--pcell) * 9 + 6px); }
-  .key-btn { font-size: 1.5rem; }
+  .play-controls { width: calc(var(--pcell) * 9 + 6px); gap: 10px; }
+  .pv { font-size: calc(var(--pcell) * .56); }
+
+  /* phone keypad: tools row, modes row, then a single row of 9 digits */
+  .keypad { grid-template-columns: repeat(5, 1fr); gap: 6px; }
+  .actions { grid-column: 1 / 5; grid-row: 1; gap: 6px; }
+  .actions .pbtn, .key-wide {
+    padding: 8px 2px; font-size: .8rem; border-radius: 10px; background: transparent; color: #4b5563;
+  }
+  .key-wide { grid-column: 5; grid-row: 1; }
+  .modes { grid-column: 1 / 6; grid-row: 2; flex-direction: row; gap: 6px; }
+  .mode-btn { padding: 5px 2px; font-size: .72rem; border-radius: 10px; }
+  .mi { height: 18px; line-height: 18px; font-size: 1rem; }
+  .mi-corner { height: 18px; }
+  .mi-colour { width: 18px; height: 18px; }
+  .digits { grid-column: 1 / 6; grid-row: 3; grid-template-columns: repeat(9, 1fr); gap: 2px; }
+  .key-btn {
+    aspect-ratio: auto; height: calc(var(--pcell) * 1.35); border-radius: 8px;
+    background: transparent; color: var(--p-user); font-size: calc(var(--pcell) * .8);
+  }
+  .key-btn:hover { background: transparent; }
+  .key-btn:active { background: var(--p-key); }
+  .keypad.mode-corner .key-btn .dg { top: 8%; left: 10%; font-size: calc(var(--pcell) * .42); }
+  .keypad.mode-centre .key-btn .dg { font-size: calc(var(--pcell) * .42); }
+  .key-btn .sw { inset: 18% 8%; border-radius: 6px; }
 }
 @media (max-width: 520px) {
   .new-options { grid-template-columns: 1fr; }
