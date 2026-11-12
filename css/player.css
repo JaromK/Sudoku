@@ -75,8 +75,8 @@ body.play-mode { background: #fff; }
   position: absolute; inset: 0; z-index: 2; display: flex; align-items: center; justify-content: center;
   font-size: calc(var(--pcell) * .62); line-height: 1;
 }
-.pv.given { color: var(--p-ink); }
-.pv.user { color: var(--p-user); }
+.pv.given { color: var(--p-ink); font-weight: 700; }
+.pv.user { color: var(--p-user); font-weight: 400; }
 .pv.clash { color: #e11d48 !important; }
 .pv.wrong { color: #e11d48 !important; text-decoration: underline wavy #e11d48; text-decoration-thickness: 2px; }
 .pv.preview { color: #16a34a; opacity: .55; font-weight: 700; }
