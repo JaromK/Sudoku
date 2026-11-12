@@ -357,7 +357,7 @@
   // On phones the straightened photo is shown on top of the board (toggle) instead of below it.
   function showPhotoOverlay(on) {
     const ov = $('photo-overlay');
-    if (on) ov.getContext('2d').drawImage($('warp-canvas'), 0, 0);
+    if (on) ov.getContext('2d').drawImage(crop.big || $('warp-canvas'), 0, 0, ov.width, ov.height);
     ov.classList.toggle('hidden', !on);
     $('p-photo-toggle').textContent = on ? 'Hide photo' : 'Show photo';
   }
@@ -597,7 +597,7 @@
     hideMsg('new-msg');
     let bmp;
     try { bmp = await createImageBitmap(file); } catch (e) { msg('new-msg', 'bad', '<p>Couldn\'t open that image. Try a JPG or PNG.</p>'); return; }
-    const k = Math.min(1, 1600 / Math.max(bmp.width, bmp.height));
+    const k = Math.min(1, 2000 / Math.max(bmp.width, bmp.height));
     const w = Math.round(bmp.width * k), h = Math.round(bmp.height * k);
     const cv = document.createElement('canvas');
     cv.width = w; cv.height = h;
@@ -627,11 +627,17 @@
   function drawCrop() {
     const cv = $('crop-canvas');
     const maxW = Math.max(200, cv.parentElement.clientWidth || 560);
+    // crop.scale = screen points per image pixel; the canvas itself is drawn at the screen's
+    // full pixel density so the preview stays sharp on high-resolution phones.
     crop.scale = Math.min(1, maxW / crop.img.width, (window.innerHeight * 0.5) / crop.img.height);
-    cv.width = Math.round(crop.img.width * crop.scale);
-    cv.height = Math.round(crop.img.height * crop.scale);
+    const dpr = Math.min(3, window.devicePixelRatio || 1);
+    const cssW = Math.round(crop.img.width * crop.scale), cssH = Math.round(crop.img.height * crop.scale);
+    cv.style.width = cssW + 'px'; cv.style.height = cssH + 'px';
+    cv.width = Math.round(cssW * dpr); cv.height = Math.round(cssH * dpr);
     const ctx = cv.getContext('2d');
-    ctx.drawImage(crop.img, 0, 0, cv.width, cv.height);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(crop.img, 0, 0, cssW, cssH);
     const pts = crop.corners.map(p => ({ x: p.x * crop.scale, y: p.y * crop.scale }));
     ctx.fillStyle = 'rgba(79,70,229,.10)';
     ctx.strokeStyle = '#4f46e5';
@@ -655,7 +661,7 @@
   }
   function cropPoint(e) {
     const cv = $('crop-canvas'), r = cv.getBoundingClientRect();
-    return { x: (e.clientX - r.left) * (cv.width / r.width) / crop.scale, y: (e.clientY - r.top) * (cv.height / r.height) / crop.scale };
+    return { x: (e.clientX - r.left) / crop.scale, y: (e.clientY - r.top) / crop.scale };
   }
   function initCropDrag() {
     const cv = $('crop-canvas');
@@ -663,8 +669,7 @@
       const p = cropPoint(e);
       let best = -1, bd = Infinity;
       crop.corners.forEach((c, k) => { const d = Math.hypot(c.x - p.x, c.y - p.y); if (d < bd) { bd = d; best = k; } });
-      const r = cv.getBoundingClientRect();
-      if (bd * crop.scale * (r.width / cv.width) < 44) { crop.drag = best; cv.setPointerCapture(e.pointerId); e.preventDefault(); }
+      if (bd * crop.scale < 44) { crop.drag = best; cv.setPointerCapture(e.pointerId); e.preventDefault(); }
     });
     cv.addEventListener('pointermove', e => {
       if (crop.drag < 0) return;
@@ -686,7 +691,9 @@
       await new Promise(r => setTimeout(r, 30)); // let the status show before the heavy work
       const grid = O.warp(crop.gray, crop.corners, 450);
       const res = await O.readDigits(grid);
-      $('warp-canvas').getContext('2d').drawImage(O.grayToCanvas(grid), 0, 0);
+      // show the photo turned the same way the digits were read
+      $('warp-canvas').getContext('2d').drawImage(O.grayToCanvas(O.rotate(grid, res.rotation)), 0, 0);
+      crop.big = O.grayToCanvas(O.rotate(O.warp(crop.gray, crop.corners, 900), res.rotation)); // sharp copy for "Show photo"
       status.textContent = '';
       closeModals();
       loadGrid(res.digits, { unsure: res.unsure, photo: true });

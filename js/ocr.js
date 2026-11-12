@@ -107,21 +107,47 @@
   }
 
   // Returns the grid's corners [tl, tr, br, bl] as {x,y} in the image's coordinates.
+  // How much a straightened square looks like a sudoku: is each 1/9 step a line that is darker
+  // than the middle of the cells beside it, in both directions? Relative, so faint grey lines
+  // count too. Returns 0..16 (lines found).
+  function gridness(g) {
+    const N = g.w, step = N / 9;
+    const row = new Float32Array(N), col = new Float32Array(N);
+    for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) { const v = g.data[y * N + x]; row[y] += v / N; col[x] += v / N; }
+    let found = 0;
+    for (const prof of [row, col]) {
+      for (let k = 1; k <= 8; k++) {
+        const c = Math.round(k * step);
+        let line = 255;
+        for (let o = -2; o <= 2; o++) line = Math.min(line, prof[Math.min(N - 1, Math.max(0, c + o))]);
+        const a = Math.round(c - step / 2), b = Math.min(N - 1, Math.round(c + step / 2));
+        const between = Math.min(prof[a], prof[b]);
+        if (between - line > Math.max(6, between * 0.06)) found++;
+      }
+    }
+    return found;
+  }
+
   function detectGrid(img) {
     const { img: small, k } = resize(img, 500);
     const { w, h } = small;
     const mask = adaptiveThreshold(small, Math.max(5, Math.round(Math.min(w, h) / 40)), 6);
     const comps = components(mask, w, h, 0, 0, w, h, 50);
-    const minSide = Math.min(w, h) * 0.25;
+    const minSide = Math.min(w, h) * 0.2;
+    // The largest outline isn't always the puzzle (the edge of the page against a table, a
+    // photo frame...). Straighten each candidate and keep the one that has a sudoku's
+    // internal lines; size only breaks ties.
     let best = null;
     for (const c of comps) {
       const bw = c.maxX - c.minX + 1, bh = c.maxY - c.minY + 1;
       if (bw < minSide || bh < minSide) continue;
       const ratio = bw / bh;
-      if (ratio < 0.6 || ratio > 1.65) continue;
+      if (ratio < 0.5 || ratio > 2) continue;
       const area = bw * bh;
       if (c.n / area > 0.5) continue; // a solid dark area, not a grid
-      if (!best || area > best.area) best = { c, area };
+      const quad = c.corners.map(p => ({ x: (p % w) + 0.5, y: ((p / w) | 0) + 0.5 }));
+      const score = gridness(warp(small, quad, 144)) + area / (w * h) * 0.5;
+      if (!best || score > best.score) best = { c, score };
     }
     if (!best) {
       const m = 0.04;
@@ -185,10 +211,26 @@
   }
 
   // ---------- cell extraction ----------
-  // Returns 81 entries: null (empty) or { glyph: {w,h,data 0/1 mask}, aspect }.
+  // Returns 81 entries: null (empty) or { glyph, core, aspect } where glyph is the digit with any
+  // broken-off pieces merged in and core is just its biggest piece (each a {w,h,data 0/1 mask}).
   function extractCells(grid) {
     const N = grid.w, cs = N / 9;
     const mask = adaptiveThreshold(grid, Math.max(4, Math.round(cs / 4)), 12);
+    // Re-threshold a box with Otsu so thin strokes survive blur.
+    const glyphFrom = (box, x0, y0, size) => {
+      const pad = 1;
+      const minX = Math.max(x0, box.minX - pad), maxX = Math.min(x0 + size - 1, box.maxX + pad);
+      const minY = Math.max(y0, box.minY - pad), maxY = Math.min(y0 + size - 1, box.maxY + pad);
+      const gw = maxX - minX + 1, gh = maxY - minY + 1;
+      const hist = new Array(256).fill(0);
+      for (let y = minY; y <= maxY; y++) for (let x = minX; x <= maxX; x++) hist[grid.data[y * N + x]]++;
+      const t = otsu(hist, gw * gh);
+      const data = new Uint8Array(gw * gh);
+      for (let y = 0; y < gh; y++) for (let x = 0; x < gw; x++) {
+        if (grid.data[(y + minY) * N + x + minX] <= t) data[y * gw + x] = 1;
+      }
+      return { w: gw, h: gh, data };
+    };
     const cells = [];
     for (let r = 0; r < 9; r++) {
       for (let c = 0; c < 9; c++) {
@@ -218,6 +260,8 @@
             if (k === best) continue;
             const bw = k.maxX - k.minX + 1, bh = k.maxY - k.minY + 1;
             if (bw > size * 0.9 || bh > size * 0.98) continue;
+            // thin and long = a piece of grid line, not part of the digit
+            if (Math.min(bw, bh) < cs * 0.08 && Math.max(bw, bh) > cs * 0.25) continue;
             if (k.minX >= box.minX && k.maxX <= box.maxX && k.minY >= box.minY && k.maxY <= box.maxY) continue;
             const xOverlap = Math.min(k.maxX, box.maxX) - Math.max(k.minX, box.minX);
             const yGap = Math.max(k.minY - box.maxY, box.minY - k.maxY);
@@ -227,19 +271,9 @@
             Object.assign(box, nb); grew = true;
           }
         }
-        // Re-threshold the digit's box with Otsu so thin strokes survive blur.
-        const pad = 2;
-        const minX = Math.max(x0, box.minX - pad), maxX = Math.min(x0 + size - 1, box.maxX + pad);
-        const minY = Math.max(y0, box.minY - pad), maxY = Math.min(y0 + size - 1, box.maxY + pad);
-        const gw = maxX - minX + 1, gh = maxY - minY + 1;
-        const hist = new Array(256).fill(0);
-        for (let y = minY; y <= maxY; y++) for (let x = minX; x <= maxX; x++) hist[grid.data[y * N + x]]++;
-        const t = otsu(hist, gw * gh);
-        const data = new Uint8Array(gw * gh);
-        for (let y = 0; y < gh; y++) for (let x = 0; x < gw; x++) {
-          if (grid.data[(y + minY) * N + x + minX] <= t) data[y * gw + x] = 1;
-        }
-        cells.push({ glyph: { w: gw, h: gh, data }, aspect: gw / gh });
+        const core = { minX: best.minX, maxX: best.maxX, minY: best.minY, maxY: best.maxY };
+        const glyph = glyphFrom(box, x0, y0, size);
+        cells.push({ glyph, core: glyphFrom(core, x0, y0, size), aspect: glyph.w / glyph.h });
       }
     }
     return cells;
@@ -358,7 +392,7 @@
 
   // Scores for digits 1..9 per glyph (index 0 unused); null for empty cells.
   // A blob that looks like no digit at all (a speck, a smudge) is treated as an empty cell.
-  const MIN_MATCH = 0.5;
+  const MIN_MATCH = 0.45;
   function scoreCells(feats, tpls) {
     return feats.map(f => {
       if (!f) return null;
@@ -441,21 +475,57 @@
   }
 
   // Reads all digits from a straightened grid. opts.fonts overrides the reference fonts (for testing).
-  async function readDigits(grid, onProgress, opts) {
+  // Rotates a square grayscale image by k quarter turns clockwise.
+  function rotate(img, k) {
+    k = ((k % 4) + 4) % 4;
+    if (!k) return img;
+    const N = img.w, data = new Uint8ClampedArray(N * N);
+    for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+      const v = img.data[y * N + x];
+      if (k === 1) data[x * N + (N - 1 - y)] = v;
+      else if (k === 2) data[(N - 1 - y) * N + (N - 1 - x)] = v;
+      else data[(N - 1 - x) * N + y] = v;
+    }
+    return { w: N, h: N, data };
+  }
+
+  // Scores every cell of a straightened grid: the digit with and without its merged pieces,
+  // keeping whichever looks more like a digit.
+  function scoreGrid(grid) {
     const cells = extractCells(grid);
-    if (!cells.some(Boolean)) return { digits: new Array(81).fill(0), unsure: new Set() };
+    const best = sc => (sc ? Math.max(...sc) : -9);
+    const featsA = cells.map(c => (c ? features(c.glyph) : null));
+    const featsB = cells.map(c => (c ? features(c.core) : null));
+    const scA = scoreCells(featsA, templates), scB = scoreCells(featsB, templates);
+    const feats = featsA.map((f, i) => (best(scB[i]) > best(scA[i]) ? featsB[i] : f));
+    const scores = scA.map((sc, i) => (best(scB[i]) > best(sc) ? scB[i] : sc));
+    scores.forEach((sc, i) => { if (!sc) feats[i] = null; }); // specks count as empty
+    const found = scores.filter(Boolean).map(best);
+    const quality = found.length ? found.reduce((a, b) => a + b, 0) / found.length : -9;
+    return { feats, scores, quality, count: found.length };
+  }
+
+  // Reads all digits from a straightened grid. The photo may be sideways or upside down, so all
+  // four turns are tried and the one whose digits match best wins. Returns the turn used
+  // (quarter turns clockwise) so the caller can show the photo the same way.
+  // opts.fonts overrides the reference fonts (for testing).
+  async function readDigits(grid, onProgress, opts) {
     if (opts && opts.fonts) templates = buildTemplates(opts.fonts);
     else if (!templates) templates = buildTemplates();
-    const feats = cells.map(c => (c ? features(c.glyph) : null));
-    const first = scoreCells(feats, templates);
-    first.forEach((sc, i) => { if (!sc) feats[i] = null; }); // specks count as empty
-    const scores = refineWithPhotoFont(feats, first);
+    let pick = null;
+    for (let k = 0; k < 4; k++) {
+      const r = scoreGrid(rotate(grid, k));
+      if (!pick || r.quality > pick.quality) pick = { ...r, rotation: k };
+    }
     onProgress && onProgress(1, 1);
-    return resolveWithRules(scores);
+    if (!pick.count) return { digits: new Array(81).fill(0), unsure: new Set(), rotation: 0 };
+    const res = resolveWithRules(refineWithPhotoFont(pick.feats, pick.scores));
+    res.rotation = pick.rotation;
+    return res;
   }
 
   return {
     grayFromRGBA, resize, adaptiveThreshold, detectGrid, warp, extractCells,
-    readDigits, grayToCanvas, features, buildTemplates, setOwnWeight: w => { OWN_WEIGHT = w; },
+    readDigits, rotate, grayToCanvas, features, buildTemplates, setOwnWeight: w => { OWN_WEIGHT = w; },
   };
 });
