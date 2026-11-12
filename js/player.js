@@ -8,6 +8,13 @@
   const SKEY = 'sudokuTrainer.player.v2', SETKEY = 'sudokuTrainer.settings', TABKEY = 'sudokuTrainer.tab', LVKEY = 'sudokuTrainer.level';
   const COLOURS = [null, '#c9ccd1', '#f3a6a6', '#f7c58c', '#f2e188', '#a6dd9f', '#9ccdee', '#bcb2f0', '#efb1da', '#9fe1d1'];
   const MODES = ['normal', 'centre', 'colour'];
+  // One colour fills the cell; several split it into equal pie slices.
+  function colourFill(mask) {
+    const cs = E.digitsOf(mask).map(c => COLOURS[c]);
+    if (cs.length === 1) return cs[0];
+    const step = 100 / cs.length;
+    return `conic-gradient(from -45deg, ${cs.map((c, k) => `${c} ${k * step}% ${(k + 1) * step}%`).join(', ')})`;
+  }
 
   const settings = { conflicts: true, sameDigit: true, seen: true, autoClean: true, timer: true };
   try { Object.assign(settings, JSON.parse(localStorage.getItem(SETKEY)) || {}); } catch (e) { /* ignore */ }
@@ -49,7 +56,7 @@
     try {
       localStorage.setItem(SKEY, JSON.stringify({
         phase: st.phase, values: st.values, given: st.given, corner: st.corner, centre: st.centre, colour: st.colour,
-        log: st.log, elapsed: elapsedNow(), solved: st.solved, mode: st.mode, level: st.level,
+        log: st.log, elapsed: elapsedNow(), solved: st.solved, mode: st.mode, level: st.level, colourBits: true,
       }));
     } catch (e) { /* ignore */ }
   }
@@ -59,7 +66,7 @@
       if (!d || !Array.isArray(d.values) || d.values.length !== 81) return false;
       Object.assign(st, {
         phase: d.phase === 'play' ? 'play' : 'setup', values: d.values, given: d.given, corner: d.corner || blank(),
-        centre: d.centre || blank(), colour: d.colour || blank(), log: d.log || [], elapsed: d.elapsed || 0,
+        centre: d.centre || blank(), colour: d.colour ? (d.colourBits ? d.colour : d.colour.map(c => (c ? 1 << c : 0))) : blank(), log: d.log || [], elapsed: d.elapsed || 0,
         solved: !!d.solved, mode: MODES.includes(d.mode) ? d.mode : 'normal', level: L.LEVELS[d.level] ? d.level : null,
       });
       // Corner marks are no longer supported: fold any saved ones into the centre marks.
@@ -162,7 +169,7 @@
       if (st.sel.has(i)) cls += ' sel';
       if (st.phase === 'setup' && st.unsure.has(i)) cls += ' unsure';
       html += `<div class="${cls}">`;
-      if (st.colour[i]) html += `<div class="pcol" style="background:${COLOURS[st.colour[i]]}"></div>`;
+      if (st.colour[i]) html += `<div class="pcol" style="background:${colourFill(st.colour[i])}"></div>`;
       if (st.values[i]) {
         const g = st.phase === 'setup' || st.given[i];
         html += `<div class="pv ${g ? 'given' : 'user'}${conf.has(i) ? ' clash' : ''}${st.wrong.has(i) ? ' wrong' : ''}">${st.values[i]}</div>`;
@@ -231,8 +238,9 @@
     if (mode === 'colour') {
       const cells = [...st.sel];
       mutate(() => {
-        const all = cells.every(i => st.colour[i] === d);
-        for (const i of cells) st.colour[i] = all ? 0 : d;
+        const bit = 1 << d; // a cell can hold several colours: toggle this one
+        const all = cells.every(i => st.colour[i] & bit);
+        for (const i of cells) st.colour[i] = all ? st.colour[i] & ~bit : st.colour[i] | bit;
       });
       return;
     }
@@ -321,7 +329,7 @@
       if (i < 0) return;
       const all = [...Array(81).keys()];
       if (st.values[i]) st.sel = new Set(all.filter(j => st.values[j] === st.values[i]));
-      else if (st.colour[i]) st.sel = new Set(all.filter(j => st.colour[j] === st.colour[i]));
+      else if (st.colour[i]) st.sel = new Set(all.filter(j => st.colour[j] & st.colour[i]));
       render();
     });
   }
@@ -424,14 +432,21 @@
     if (fv) fv.addEventListener('click', () => { mutate(() => { for (const i of p.wrongVals) st.values[i] = 0; }); hideMsg('play-msg'); });
     if (fn) fn.addEventListener('click', () => { const l = legal(); mutate(() => { for (const i of p.badNotes) st.centre[i] = l[i]; }); hideMsg('play-msg'); });
   }
+  // Check only tells the player whether they're on the right track; it doesn't point at cells.
   function check() {
     clearStep();
-    if (st.solved) { msg('play-msg', 'ok', `<p><b>Solved!</b> Time: ${fmt(elapsedNow())}.</p>`); return; }
-    if (!st.unique) { msg('play-msg', 'info', '<p>This puzzle has more than one solution, so I can\'t tell which digits are right. No rule is broken so far.</p>'); render(); return; }
-    const p = boardProblems();
-    if (p) { reportProblems(p); return; }
-    msg('play-msg', 'ok', '<p>Looks good so far: no mistakes.</p>');
-    render();
+    if (st.solved) { toast('ok', `Solved! Time ${fmt(elapsedNow())}`); return; }
+    if (!st.unique) { toast('info', 'This puzzle has more than one solution, so I can\'t check it.'); return; }
+    if (boardProblems()) toast('bad', 'Not quite. Something on the board is wrong.');
+    else toast('ok', 'Good so far! You\'re on the right track.');
+  }
+  let toastTimer = 0;
+  function toast(kind, text) {
+    const t = $('toast');
+    t.className = 'toast ' + kind;
+    t.textContent = text;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => t.classList.add('hidden'), 3000);
   }
 
   // ---------- assistant ----------
