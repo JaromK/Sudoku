@@ -121,6 +121,8 @@
   // ---------- rendering ----------
   function render() {
     const conf = settings.conflicts ? S.conflicts(st.values) : new Set();
+    // candidates already ruled out by a digit in the same row, column or box
+    const allowed = settings.conflicts ? legal() : null;
     const deco = st.step && st.view === 'full' ? st.step.deco : st.step && st.view === 'hint' ? st.step.hintDeco : null;
     const focus = st.step && st.view ? st.step.focus : null;
     const one = st.sel.size === 1 ? [...st.sel][0] : -1;
@@ -155,7 +157,8 @@
           const ds = E.digitsOf(st.centre[i]);
           html += `<div class="pcentre n${ds.length}">` + ds.map(d => {
             const x = deco && deco.cand[i + ':' + d];
-            return `<span class="${x || (focus === d ? 'focus' : selDigit === d ? 'hl' : '')}">${d}</span>`;
+            const bad = allowed && !(allowed[i] & (1 << d)) ? ' bad' : '';
+            return `<span class="${(x || (focus === d ? 'focus' : selDigit === d ? 'hl' : '')) + bad}">${d}</span>`;
           }).join('') + '</div>';
         }
       }

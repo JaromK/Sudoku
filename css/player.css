@@ -90,6 +90,7 @@ body.play-mode { background: #fff; }
 .pcentre.n5 span, .pcentre.n6 span { font-size: calc(var(--pcell) * .21); }
 .pcentre.n7 span, .pcentre.n8 span, .pcentre.n9 span { font-size: calc(var(--pcell) * .19); }
 .pcentre .hl { font-weight: 800; color: #000; }
+.pcentre .bad { color: #e11d48; font-weight: 700; }
 .pcentre .focus { background: #fde047; color: var(--p-ink); font-weight: 700; }
 .pcentre .key { background: #4ade80; color: #052e16; font-weight: 700; }
 .pcentre .z { background: #fb923c; color: #431407; font-weight: 700; }
