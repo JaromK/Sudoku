@@ -9,12 +9,14 @@
 </head>
 <body class="play-mode">
   <header class="appbar">
-    <div class="brand">Sudoku <span>Trainer</span></div>
+    <div class="brand">Sudoku <span class="brand-sub">Trainer</span></div>
     <div class="bar-play">
+      <span id="level-tag" class="level-tag hidden"></span>
       <div id="timer-wrap" class="timer-wrap">
         <span id="timer" class="timer">0:00</span>
         <button id="p-pause" class="icon-btn" title="Pause">❚❚</button>
       </div>
+      <button id="p-new" class="new-btn" title="New puzzle">New</button>
       <button id="p-settings" class="icon-btn" title="Settings">⚙</button>
     </div>
     <button class="app-tab bar-back" data-app="play">← Back to puzzle</button>
@@ -51,7 +53,7 @@
         <div class="digits" id="digits"></div>
         <div class="modes">
           <button class="mode-btn active" data-mode="normal" title="Normal digits (Z)"><span class="mi mi-normal">1</span>Normal</button>
-          <button class="mode-btn" data-mode="centre" title="Candidates (C, or hold Shift/Ctrl)"><span class="mi mi-centre">12</span>Notes</button>
+          <button class="mode-btn" data-mode="centre" title="Candidates (C, or hold Shift/Ctrl)"><span class="mi mi-centre">12</span>Candidates</button>
           <button class="mode-btn" data-mode="colour" title="Colour (V)"><span class="mi mi-colour"></span>Colour</button>
           <button id="p-delete" class="mode-btn" title="Erase (Backspace)"><span class="mi">⌫</span>Delete</button>
         </div>
@@ -61,7 +63,6 @@
           <button id="p-restart" class="pbtn" title="Clear your progress">Restart</button>
           <button id="p-check" class="pbtn" title="Check for mistakes">Check</button>
         </div>
-        <button id="p-new" class="key-wide primary">New puzzle</button>
       </div>
 
       <div id="assistant" class="assistant">
@@ -90,6 +91,16 @@
   <div id="dlg-new" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="dlg-new-title">
     <div class="modal-card">
       <div class="modal-head"><h3 id="dlg-new-title">New puzzle</h3><button class="icon-btn" data-close title="Close">✕</button></div>
+      <div class="level-pick">
+        <b>Random puzzle</b><span>Choose a level:</span>
+        <div class="level-btns">
+          <button class="level-btn" data-level="easy">Easy</button>
+          <button class="level-btn" data-level="medium">Medium</button>
+          <button class="level-btn" data-level="hard">Hard</button>
+          <button class="level-btn" data-level="expert">Expert</button>
+        </div>
+        <div id="level-status" class="level-status"></div>
+      </div>
       <div class="new-options">
         <label class="opt">
           <input type="file" id="photo-input" accept="image/*" hidden>
@@ -97,7 +108,6 @@
         </label>
         <button class="opt" id="opt-type"><b>Type it in</b><span>Start from an empty grid and enter the givens.</span></button>
         <button class="opt" id="opt-paste"><b>Paste as text</b><span>81 characters, row by row, with 0 or . for blanks.</span></button>
-        <button class="opt" id="opt-random"><b>Random puzzle</b><span>Generate a fresh puzzle to play.</span></button>
       </div>
       <div id="paste-row" class="paste-row hidden">
         <input id="paste-input" placeholder="..3..6..9.7....62.2.49...." autocomplete="off" spellcheck="false">
@@ -129,8 +139,8 @@
         <div class="small-label">Keyboard</div>
         <table>
           <tr><td><kbd>1</kbd>–<kbd>9</kbd></td><td>Enter in the current mode</td></tr>
-          <tr><td><kbd>Shift</kbd>/<kbd>Ctrl</kbd> + digit</td><td>Candidate (centre note)</td></tr>
-          <tr><td><kbd>Z</kbd> <kbd>C</kbd> <kbd>V</kbd></td><td>Normal / Notes / Colour mode</td></tr>
+          <tr><td><kbd>Shift</kbd>/<kbd>Ctrl</kbd> + digit</td><td>Add a candidate</td></tr>
+          <tr><td><kbd>Z</kbd> <kbd>C</kbd> <kbd>V</kbd></td><td>Normal / Candidates / Colour mode</td></tr>
           <tr><td><kbd>Space</kbd></td><td>Next mode</td></tr>
           <tr><td>Drag, <kbd>Shift</kbd>/<kbd>Ctrl</kbd>+click</td><td>Select several cells</td></tr>
           <tr><td>Double-click</td><td>Select all cells with that digit</td></tr>
@@ -139,7 +149,7 @@
           <tr><td><kbd>Ctrl</kbd>+<kbd>Z</kbd> / <kbd>Ctrl</kbd>+<kbd>Y</kbd></td><td>Undo / Redo</td></tr>
           <tr><td><kbd>Ctrl</kbd>+<kbd>A</kbd>, <kbd>Esc</kbd></td><td>Select all / deselect</td></tr>
         </table>
-        <p class="small-note">Some browsers reserve Ctrl+1…9 for switching tabs. If that happens, use Shift or the C key for notes mode.</p>
+        <p class="small-note">Some browsers reserve Ctrl+1…9 for switching tabs. If that happens, use Shift or the C key for candidate mode.</p>
       </div>
     </div>
   </div>
@@ -236,6 +246,8 @@
   <script src="js/puzzles.js"></script>
   <script src="js/stepsolver.js"></script>
   <script src="js/ocr.js"></script>
+  <script src="js/levels.js"></script>
+  <script src="js/fireworks.js"></script>
   <script src="js/player.js"></script>
   <script src="js/app.js"></script>
 </body>

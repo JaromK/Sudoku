@@ -2,10 +2,10 @@
 // multi-cell selection, undo/redo, timer, checking, photo import and a step-by-step assistant.
 (function () {
   'use strict';
-  const E = window.SudokuEngine, S = window.StepSolver, O = window.SudokuOCR;
+  const E = window.SudokuEngine, S = window.StepSolver, O = window.SudokuOCR, L = window.SudokuLevels;
   const $ = id => document.getElementById(id);
   const name = E.cellName;
-  const SKEY = 'sudokuTrainer.player.v2', SETKEY = 'sudokuTrainer.settings', TABKEY = 'sudokuTrainer.tab';
+  const SKEY = 'sudokuTrainer.player.v2', SETKEY = 'sudokuTrainer.settings', TABKEY = 'sudokuTrainer.tab', LVKEY = 'sudokuTrainer.level';
   const COLOURS = [null, '#c9ccd1', '#f3a6a6', '#f7c58c', '#f2e188', '#a6dd9f', '#9ccdee', '#bcb2f0', '#efb1da', '#9fe1d1'];
   const MODES = ['normal', 'centre', 'colour'];
 
@@ -49,7 +49,7 @@
     try {
       localStorage.setItem(SKEY, JSON.stringify({
         phase: st.phase, values: st.values, given: st.given, corner: st.corner, centre: st.centre, colour: st.colour,
-        log: st.log, elapsed: elapsedNow(), solved: st.solved, mode: st.mode,
+        log: st.log, elapsed: elapsedNow(), solved: st.solved, mode: st.mode, level: st.level,
       }));
     } catch (e) { /* ignore */ }
   }
@@ -60,7 +60,7 @@
       Object.assign(st, {
         phase: d.phase === 'play' ? 'play' : 'setup', values: d.values, given: d.given, corner: d.corner || blank(),
         centre: d.centre || blank(), colour: d.colour || blank(), log: d.log || [], elapsed: d.elapsed || 0,
-        solved: !!d.solved, mode: MODES.includes(d.mode) ? d.mode : 'normal',
+        solved: !!d.solved, mode: MODES.includes(d.mode) ? d.mode : 'normal', level: L.LEVELS[d.level] ? d.level : null,
       });
       // Corner marks are no longer supported: fold any saved ones into the centre marks.
       for (let i = 0; i < 81; i++) { st.centre[i] |= st.corner[i]; st.corner[i] = 0; }
@@ -126,6 +126,9 @@
       stopTimer();
       st.sel.clear();
       msg('play-msg', 'ok', `<p><b>Solved!</b> Time: ${fmt(elapsedNow())}. Every row, column and box is complete.</p>`);
+      if (!st.autoSolving && window.Fireworks) {
+        window.Fireworks.celebrate({ time: fmt(elapsedNow()), level: st.level ? L.LEVELS[st.level].name : '', onNew: openNew });
+      }
     }
     if (!st.solved && was) startTimer();
   }
@@ -203,6 +206,8 @@
     $('p-pause').textContent = st.paused ? '▶' : '❚❚';
     $('p-pause').title = st.paused ? 'Resume' : 'Pause';
     $('timer-wrap').classList.toggle('hidden', !settings.timer);
+    $('level-tag').textContent = st.level ? L.LEVELS[st.level].name : '';
+    $('level-tag').classList.toggle('hidden', !st.level || setup);
     $('pause-cover').classList.toggle('hidden', !st.paused);
     $('log-count').textContent = st.log.length;
     $('log').innerHTML = st.log.map(x => `<li>${x}</li>`).join('');
@@ -338,6 +343,7 @@
       phase: 'setup', values: grid.slice(), given: grid.map(v => v > 0), corner: blank(), centre: blank(), colour: blank(),
       sel: new Set(), cursor: -1, mode: 'normal', solution: null, unique: false, solved: false, undo: [], redo: [], log: [],
       unsure: opts.unsure || new Set(), wrong: new Set(), elapsed: 0, runningSince: null, paused: false,
+      level: opts.level || null,
     });
     clearStep();
     hideMsg('play-msg');
@@ -409,7 +415,7 @@
                <p><button class="pbtn" id="fix-vals">Clear the wrong digits</button></p>`;
     }
     if (p.badNotes.length) {
-      html += `<p>The centre marks in ${p.badNotes.map(name).join(', ')} are missing a digit the cell needs.</p>
+      html += `<p>The candidates in ${p.badNotes.map(name).join(', ')} are missing a digit the cell needs.</p>
                <p><button class="pbtn" id="fix-notes">Restore the candidates there</button></p>`;
     }
     render();
@@ -527,7 +533,8 @@
     setTimeout(() => {
       const used = {};
       let n = 0;
-      mutate(() => {
+      st.autoSolving = true; // no fireworks when the computer finishes the puzzle
+      try { mutate(() => {
         const l = legal();
         for (let i = 0; i < 81; i++) if (!st.values[i] && !st.centre[i]) st.centre[i] = l[i];
         while (!isComplete()) {
@@ -537,7 +544,7 @@
           used[step.tech] = (used[step.tech] || 0) + 1;
           if (++n > 1000) break;
         }
-      });
+      }); } finally { st.autoSolving = false; }
       const list = Object.entries(used).map(([t, c]) => `${t} ×${c}`).join(', ');
       msg('play-msg', st.solved ? 'ok' : 'bad',
         `<p><b>${st.solved ? 'Solved' : 'Stopped'} after ${n} steps.</b> Techniques used: ${list || 'none'}.</p>
@@ -552,7 +559,33 @@
     $('paste-row').classList.add('hidden');
     $('crop-panel').classList.add('hidden');
     hideMsg('new-msg');
+    $('level-status').textContent = '';
+    markLevel();
     openModal('dlg-new');
+  }
+
+  // ---------- levels ----------
+  let generating = false;
+  function lastLevel() { try { const v = localStorage.getItem(LVKEY); return L.LEVELS[v] ? v : 'medium'; } catch (e) { return 'medium'; } }
+  function markLevel() {
+    const cur = lastLevel();
+    document.querySelectorAll('.level-btn').forEach(b => b.classList.toggle('active', b.dataset.level === cur));
+  }
+  function newRandom(level) {
+    if (generating) return;
+    generating = true;
+    try { localStorage.setItem(LVKEY, level); } catch (e) { /* ignore */ }
+    markLevel();
+    document.querySelectorAll('.level-btn').forEach(b => { b.disabled = true; });
+    $('level-status').textContent = `Creating a ${L.LEVELS[level].name.toLowerCase()} puzzle…`;
+    L.generate(level, r => {
+      generating = false;
+      document.querySelectorAll('.level-btn').forEach(b => { b.disabled = false; });
+      $('level-status').textContent = '';
+      closeModals();
+      loadGrid(r.puzzle, { level });
+      startPlay();
+    });
   }
 
   // ---------- photo import ----------
@@ -772,11 +805,7 @@
       if (st.unique) startPlay();
     });
     $('paste-input').addEventListener('keydown', e => { if (e.key === 'Enter') $('paste-load').click(); });
-    $('opt-random').addEventListener('click', () => {
-      closeModals();
-      loadGrid(E.generatePuzzle().puzzle);
-      startPlay();
-    });
+    document.querySelectorAll('.level-btn').forEach(b => b.addEventListener('click', () => newRandom(b.dataset.level)));
 
     document.querySelectorAll('.app-tab').forEach(t => t.addEventListener('click', () => showApp(t.dataset.app)));
     document.addEventListener('keydown', onKey);
@@ -788,6 +817,7 @@
     if (!restore()) {
       loadGrid(E.generatePuzzle().puzzle);
       startPlay();
+      newRandom(lastLevel()); // replace the placeholder with a graded puzzle as soon as it's ready
     } else if (st.phase === 'setup') {
       render();
       if (st.values.some(Boolean)) validateSetup(false);

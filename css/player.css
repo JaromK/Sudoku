@@ -6,6 +6,11 @@
 .brand { font-weight: 800; font-size: 1.15rem; letter-spacing: -0.02em; color: #111827; }
 .brand span { color: var(--accent); }
 .bar-play { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+.new-btn {
+  border: 0; background: var(--accent); color: #fff; border-radius: 9px; height: 36px; padding: 0 14px;
+  font: inherit; font-weight: 700; cursor: pointer;
+}
+.new-btn:hover { background: #4338ca; }
 .bar-back {
   border: 0; background: #f1f3f6; padding: 7px 14px; border-radius: 9px; cursor: pointer;
   font: inherit; font-weight: 600; color: #111827;
@@ -249,14 +254,18 @@ body.play-mode { background: #fff; }
   /* Fit board + keypad in one phone screen: width-limited, and height-limited by the
      ~300px the header and controls need (svh = viewport with browser bars showing). */
   :root {
-    --pcell: min(calc((100vw - 20px) / 9), calc((100vh - 300px) / 9), 60px);
-    --pcell: min(calc((100vw - 20px) / 9), calc((100svh - 300px) / 9), 60px);
+    --pcell: min(calc((100vw - 14px) / 9), calc((100vh - 240px) / 9), 60px);
+    --pcell: min(calc((100vw - 14px) / 9), calc((100svh - 240px) / 9), 60px);
   }
   .appbar { padding: 6px 10px; }
   .brand { font-size: 1.05rem; }
   .timer { font-size: 1.1rem; min-width: 0; }
+  .appbar { gap: 6px; }
+  .bar-play { gap: 6px; }
   .appbar .icon-btn { width: 32px; height: 32px; }
-  .play { flex-direction: column; align-items: center; gap: 8px; padding: 8px 10px 16px; }
+  .new-btn { height: 32px; padding: 0 11px; font-size: .88rem; }
+  .level-tag { font-size: .66rem; padding: 3px 6px; }
+  .play { flex-direction: column; align-items: center; gap: 6px; padding: 6px 4px 16px; }
   .play-controls { width: calc(var(--pcell) * 9 + 6px); gap: 10px; }
   .pv { font-size: calc(var(--pcell) * .58); }
   .pcentre { inset: 5% 2%; line-height: 1.05; }
@@ -266,7 +275,7 @@ body.play-mode { background: #fff; }
 
   .keypad { gap: 5px; }
   .digits { gap: 5px; }
-  .key-btn { aspect-ratio: auto; height: 42px; border-radius: 9px; font-size: 1.3rem; }
+  .key-btn { aspect-ratio: auto; height: 38px; border-radius: 9px; font-size: 1.3rem; }
   .key-btn:hover { background: var(--p-key); }
   .key-btn:active { background: var(--p-key-hover); }
   .keypad.mode-centre .key-btn .dg { font-size: .95rem; }
@@ -286,3 +295,43 @@ body.play-mode { background: #fff; }
 /* assistant buttons in an even grid */
 .assistant .row { display: grid; grid-template-columns: repeat(auto-fit, minmax(84px, 1fr)); }
 .assistant .row .pbtn { padding: 9px 6px; white-space: nowrap; }
+
+/* ---------- solved celebration ---------- */
+.fw-overlay {
+  position: fixed; inset: 0; z-index: 100; background: rgba(10, 14, 30, .55);
+  display: flex; align-items: center; justify-content: center; padding: 16px;
+  animation: fw-in .25s ease-out;
+}
+.fw-canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+.fw-card {
+  position: relative; background: #fff; border-radius: 18px; padding: 18px 26px 16px; text-align: center;
+  box-shadow: 0 20px 60px rgba(0,0,0,.35); animation: fw-pop .45s cubic-bezier(.2, 1.4, .4, 1) .15s both;
+}
+.fw-title { font-size: 2rem; font-weight: 800; letter-spacing: -0.02em; color: var(--accent); }
+.fw-time { font-size: 1.05rem; color: #374151; margin-top: 2px; font-variant-numeric: tabular-nums; }
+.fw-row { display: flex; gap: 8px; justify-content: center; margin-top: 14px; }
+@keyframes fw-in { from { opacity: 0; } }
+@keyframes fw-pop { from { opacity: 0; transform: scale(.6); } }
+@media (prefers-reduced-motion: reduce) { .fw-overlay, .fw-card { animation: none; } }
+
+/* ---------- level picker ---------- */
+.level-pick {
+  border: 1px solid #c7d2fe; background: #f5f7ff; border-radius: 12px; padding: 12px 14px; margin-bottom: 10px;
+  display: flex; flex-direction: column; gap: 3px;
+}
+.level-pick > span { font-size: .86rem; color: #6b7280; }
+.level-btns { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 6px; }
+.level-btn {
+  border: 1px solid #d6dbe6; background: #fff; border-radius: 10px; padding: 10px 4px; cursor: pointer;
+  font: inherit; font-weight: 600; color: #1f2937;
+}
+.level-btn:hover:not(:disabled) { border-color: var(--accent); }
+.level-btn.active { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); color: var(--accent); }
+.level-btn:disabled { opacity: .55; cursor: default; }
+.level-status { font-size: .86rem; color: var(--accent); min-height: 1.2em; margin-top: 4px; }
+.level-status:empty { display: none; }
+.level-tag {
+  font-size: .72rem; font-weight: 700; text-transform: uppercase; letter-spacing: .05em;
+  color: var(--accent); background: #eef1ff; border-radius: 999px; padding: 3px 8px;
+}
+@media (max-width: 400px) { .brand-sub { display: none; } }
