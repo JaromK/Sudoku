@@ -426,7 +426,8 @@
   // ---------- assistant ----------
   function fillCandidates() {
     const l = legal();
-    mutate(() => { for (let i = 0; i < 81; i++) if (!st.values[i]) st.centre[i] = st.centre[i] ? st.centre[i] & l[i] : l[i]; });
+    // Every empty cell gets exactly the digits not already in its row, column or box.
+    mutate(() => { for (let i = 0; i < 81; i++) st.centre[i] = st.values[i] ? 0 : l[i]; });
   }
   function clearMarks() { mutate(() => { st.corner.fill(0); st.centre.fill(0); }); }
 
