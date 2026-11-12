@@ -604,7 +604,9 @@
     const ctx = cv.getContext('2d');
     ctx.drawImage(bmp, 0, 0, w, h);
     crop.img = cv;
-    crop.gray = O.grayFromRGBA(ctx.getImageData(0, 0, w, h).data, w, h);
+    const rgba = ctx.getImageData(0, 0, w, h).data;
+    crop.gray = O.grayFromRGBA(rgba, w, h);
+    crop.chroma = O.chromaFromRGBA(rgba, w, h); // ink colour, to skip digits written in pen
     const det = O.detectGrid(crop.gray);
     crop.corners = det.corners;
     $('crop-hint').textContent = det.found
@@ -690,7 +692,7 @@
       status.textContent = 'Reading digits…';
       await new Promise(r => setTimeout(r, 30)); // let the status show before the heavy work
       const grid = O.warp(crop.gray, crop.corners, 450);
-      const res = await O.readDigits(grid);
+      const res = await O.readDigits(grid, null, { chroma: O.warp(crop.chroma, crop.corners, 450) });
       // show the photo turned the same way the digits were read
       $('warp-canvas').getContext('2d').drawImage(O.grayToCanvas(O.rotate(grid, res.rotation)), 0, 0);
       crop.big = O.grayToCanvas(O.rotate(O.warp(crop.gray, crop.corners, 900), res.rotation)); // sharp copy for "Show photo"
@@ -701,7 +703,7 @@
       // Only repeat the grid check when it found a problem (clash, no solution, several solutions).
       const m = $('setup-msg'), problem = !m.classList.contains('hidden') && !m.classList.contains('ok');
       msg('setup-msg', problem ? 'bad' : res.unsure.size ? 'info' : 'ok',
-        `<p>I read <b>${n} digits</b>${res.unsure.size ? `; check the ${res.unsure.size} in orange` : ''}.
+        `<p>I read <b>${n} printed digits</b>${res.handwritten ? ` and skipped ${res.handwritten} written in pen` : ''}${res.unsure.size ? `; check the ${res.unsure.size} in orange` : ''}.
          Compare with your photo (<b>Show photo</b>), fix anything that's off, then press <b>Start solving</b>.</p>` + (problem ? m.innerHTML : ''));
     } catch (e) {
       status.textContent = '';

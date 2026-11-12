@@ -23,6 +23,12 @@
     }
     return { w, h, data };
   }
+  // Blue-vs-red tint of each pixel (128 = neutral). Used to tell black print from pen ink.
+  function chromaFromRGBA(rgba, w, h) {
+    const data = new Uint8ClampedArray(w * h);
+    for (let i = 0, j = 0; i < data.length; i++, j += 4) data[i] = 128 + rgba[j + 2] - rgba[j];
+    return { w, h, data };
+  }
 
   function resize(img, maxDim) {
     const k = Math.min(1, maxDim / Math.max(img.w, img.h));
@@ -213,7 +219,8 @@
   // ---------- cell extraction ----------
   // Returns 81 entries: null (empty) or { glyph, core, aspect } where glyph is the digit with any
   // broken-off pieces merged in and core is just its biggest piece (each a {w,h,data 0/1 mask}).
-  function extractCells(grid) {
+  // chroma (optional): the same straightened view of chromaFromRGBA, to measure each digit's ink colour.
+  function extractCells(grid, chroma) {
     const N = grid.w, cs = N / 9;
     const mask = adaptiveThreshold(grid, Math.max(4, Math.round(cs / 4)), 12);
     // Re-threshold a box with Otsu so thin strokes survive blur.
@@ -229,7 +236,17 @@
       for (let y = 0; y < gh; y++) for (let x = 0; x < gw; x++) {
         if (grid.data[(y + minY) * N + x + minX] <= t) data[y * gw + x] = 1;
       }
-      return { w: gw, h: gh, data };
+      // Ink measured on the darkest third of the stroke, where colour survives photo compression:
+      // how dark it is, and its blue-vs-red tint.
+      const px = [];
+      for (let y = 0; y < gh; y++) for (let x = 0; x < gw; x++) {
+        if (data[y * gw + x]) { const q = (y + minY) * N + x + minX; px.push([grid.data[q], chroma ? chroma.data[q] - 128 : 0]); }
+      }
+      px.sort((a, b) => a[0] - b[0]);
+      const core = px.slice(0, Math.max(1, Math.ceil(px.length / 3)));
+      const dark = core.reduce((s, p) => s + p[0], 0) / core.length;
+      const tint = core.reduce((s, p) => s + p[1], 0) / core.length;
+      return { w: gw, h: gh, data, ink: { dark, tint } };
     };
     const cells = [];
     for (let r = 0; r < 9; r++) {
@@ -273,7 +290,7 @@
         }
         const core = { minX: best.minX, maxX: best.maxX, minY: best.minY, maxY: best.maxY };
         const glyph = glyphFrom(box, x0, y0, size);
-        cells.push({ glyph, core: glyphFrom(core, x0, y0, size), aspect: glyph.w / glyph.h });
+        cells.push({ glyph, core: glyphFrom(core, x0, y0, size), aspect: glyph.w / glyph.h, ink: glyph.ink });
       }
     }
     return cells;
@@ -491,8 +508,8 @@
 
   // Scores every cell of a straightened grid: the digit with and without its merged pieces,
   // keeping whichever looks more like a digit.
-  function scoreGrid(grid) {
-    const cells = extractCells(grid);
+  function scoreGrid(grid, chroma) {
+    const cells = extractCells(grid, chroma);
     const best = sc => (sc ? Math.max(...sc) : -9);
     const featsA = cells.map(c => (c ? features(c.glyph) : null));
     const featsB = cells.map(c => (c ? features(c.core) : null));
@@ -502,7 +519,7 @@
     scores.forEach((sc, i) => { if (!sc) feats[i] = null; }); // specks count as empty
     const found = scores.filter(Boolean).map(best);
     const quality = found.length ? found.reduce((a, b) => a + b, 0) / found.length : -9;
-    return { feats, scores, quality, count: found.length };
+    return { feats, scores, quality, count: found.length, ink: cells.map(c => (c ? c.ink : 0)) };
   }
 
   // Reads all digits from a straightened grid. The photo may be sideways or upside down, so all
@@ -510,22 +527,47 @@
   // (quarter turns clockwise) so the caller can show the photo the same way.
   // opts.fonts overrides the reference fonts (for testing).
   async function readDigits(grid, onProgress, opts) {
-    if (opts && opts.fonts) templates = buildTemplates(opts.fonts);
+    opts = opts || {};
+    if (opts.fonts) templates = buildTemplates(opts.fonts);
     else if (!templates) templates = buildTemplates();
     let pick = null;
     for (let k = 0; k < 4; k++) {
-      const r = scoreGrid(rotate(grid, k));
+      const r = scoreGrid(rotate(grid, k), opts.chroma && rotate(opts.chroma, k));
       if (!pick || r.quality > pick.quality) pick = { ...r, rotation: k };
     }
     onProgress && onProgress(1, 1);
-    if (!pick.count) return { digits: new Array(81).fill(0), unsure: new Set(), rotation: 0 };
+    if (!pick.count) return { digits: new Array(81).fill(0), unsure: new Set(), rotation: 0, handwritten: 0 };
+    // Printed givens are black; digits added by hand are often in coloured pen. If the digits'
+    // ink clearly splits into near-black and coloured, keep only the black ones.
+    const handwritten = opts.chroma ? colouredInk(pick.ink, pick.scores) : new Set();
+    for (const i of handwritten) { pick.scores[i] = null; pick.feats[i] = null; }
     const res = resolveWithRules(refineWithPhotoFont(pick.feats, pick.scores));
     res.rotation = pick.rotation;
+    res.handwritten = handwritten.size;
     return res;
   }
 
+  // Digits written in pen next to the printed ones. Split the digits at the biggest jump in
+  // ink tint; if there is a clear jump, the group with the darker strokes is the print and the
+  // other group is handwriting. No clear jump (all one ink) -> keep everything.
+  function colouredInk(ink, scores) {
+    const idx = scores.map((s, i) => (s ? i : -1)).filter(i => i >= 0).sort((a, b) => ink[a].tint - ink[b].tint);
+    if (idx.length < 10) return new Set();
+    let gap = 0, at = -1;
+    for (let k = 1; k < idx.length; k++) {
+      const d = ink[idx[k]].tint - ink[idx[k - 1]].tint;
+      if (d > gap) { gap = d; at = k; }
+    }
+    const lo = idx.slice(0, at), hi = idx.slice(at);
+    const mean = (a, f) => a.reduce((s, i) => s + ink[i][f], 0) / a.length;
+    if (gap < 8 || mean(hi, 'tint') - mean(lo, 'tint') < 15) return new Set();
+    const [print, pen] = mean(lo, 'dark') <= mean(hi, 'dark') ? [lo, hi] : [hi, lo];
+    if (print.length < 10) return new Set(); // a real puzzle has at least 17 givens
+    return new Set(pen);
+  }
+
   return {
-    grayFromRGBA, resize, adaptiveThreshold, detectGrid, warp, extractCells,
+    grayFromRGBA, chromaFromRGBA, resize, adaptiveThreshold, detectGrid, warp, extractCells,
     readDigits, rotate, grayToCanvas, features, buildTemplates, setOwnWeight: w => { OWN_WEIGHT = w; },
   };
 });
