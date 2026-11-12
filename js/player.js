@@ -146,7 +146,7 @@
       html += `<div class="${cls}">`;
       if (st.colour[i]) html += `<div class="pcol" style="background:${colourFill(st.colour[i])}"></div>`;
       if (st.values[i]) {
-        const g = st.phase === 'setup' || st.given[i];
+        const g = st.given[i];
         html += `<div class="pv ${g ? 'given' : 'user'}${conf.has(i) ? ' clash' : ''}${st.wrong.has(i) ? ' wrong' : ''}">${st.values[i]}</div>`;
       } else if (preview[i]) {
         html += `<div class="pv preview">${preview[i]}</div>`;
@@ -205,7 +205,7 @@
       const cells = [...st.sel];
       mutate(() => {
         const all = cells.every(i => st.values[i] === d);
-        for (const i of cells) { st.values[i] = all ? 0 : d; st.given[i] = !all; st.unsure.delete(i); }
+        for (const i of cells) { st.values[i] = all ? 0 : d; st.given[i] = !all; st.unsure.delete(i); st.pen.delete(i); }
       });
       validateSetup(false);
       return;
@@ -245,7 +245,7 @@
     if (st.paused || !st.sel.size) return;
     const all = [...st.sel];
     if (st.phase === 'setup') {
-      mutate(() => { for (const i of all) { st.values[i] = 0; st.given[i] = false; st.unsure.delete(i); } });
+      mutate(() => { for (const i of all) { st.values[i] = 0; st.given[i] = false; st.unsure.delete(i); st.pen.delete(i); } });
       validateSetup(false);
       return;
     }
@@ -327,21 +327,23 @@
       phase: 'setup', values: grid.slice(), given: grid.map(v => v > 0), corner: blank(), centre: blank(), colour: blank(),
       sel: new Set(), cursor: -1, mode: 'normal', solution: null, unique: false, solved: false, undo: [], redo: [], log: [],
       unsure: opts.unsure || new Set(), wrong: new Set(), elapsed: 0, runningSince: null, paused: false,
-      level: opts.level || null,
+      level: opts.level || null, pen: new Set(), penRead: opts.penRead || null,
     });
     clearStep();
     hideMsg('play-msg');
     hideMsg('setup-msg');
     $('photo-compare').classList.toggle('hidden', !opts.photo);
     $('p-photo-toggle').classList.toggle('hidden', !opts.photo);
+    updatePenButton();
     showPhotoOverlay(false);
     render();
     if (grid.some(Boolean)) validateSetup(false);
   }
 
   function validateSetup(loud) {
-    const n = st.values.filter(Boolean).length;
-    if (S.conflicts(st.values).size) { msg('setup-msg', 'bad', '<p>Some digits clash (red): the same digit twice in a row, column or box.</p>'); return false; }
+    const givens = st.values.map((v, i) => (st.given[i] ? v : 0));
+    const n = givens.filter(Boolean).length;
+    if (S.conflicts(givens).size) { msg('setup-msg', 'bad', '<p>Some digits clash (red): the same digit twice in a row, column or box.</p>'); return false; }
     if (n < 17) {
       if (loud) msg('setup-msg', 'bad', `<p>A sudoku needs at least 17 givens to have a single answer. There are ${n} so far.</p>`);
       else hideMsg('setup-msg');
@@ -365,14 +367,48 @@
   function startPlay() {
     if (!validateSetup(true)) return;
     st.phase = 'play';
-    st.given = st.values.map(v => v > 0);
+    st.given = st.values.map((v, i) => v > 0 && !st.pen.has(i));
+    const penCells = [...st.pen];
     Object.assign(st, { corner: blank(), centre: blank(), colour: blank(), undo: [], redo: [], log: [],
       unsure: new Set(), wrong: new Set(), elapsed: 0, runningSince: null, paused: false, solved: false, mode: 'normal' });
     clearStep();
     hideMsg('setup-msg');
     msg('play-msg', 'info', '<p>Select a cell and type a digit. Hold <kbd>Shift</kbd> or <kbd>Ctrl</kbd> to add candidates, or pick a mode next to the digits. Stuck? Press <b>Hint</b>.</p>');
+    st.pen = new Set();
     startTimer();
     render();
+    if (penCells.length) reportPenDigits(penCells);
+  }
+
+  // ---------- digits written in pen on a photographed puzzle ----------
+  function updatePenButton() {
+    const b = $('p-pen-toggle'), n = st.penRead ? st.penRead.pen.filter(Boolean).length : 0;
+    b.classList.toggle('hidden', !n || st.phase !== 'setup');
+    b.textContent = st.pen.size ? 'Remove my digits' : `Add my ${n} digits`;
+  }
+  function togglePenDigits() {
+    if (!st.penRead || st.phase !== 'setup') return;
+    if (st.pen.size) {
+      for (const i of st.pen) { st.values[i] = 0; st.given[i] = false; st.unsure.delete(i); }
+      st.pen.clear();
+    } else {
+      st.penRead.pen.forEach((d, i) => {
+        if (!d || st.values[i]) return;
+        st.values[i] = d; st.given[i] = false; st.pen.add(i);
+        if (st.penRead.unsure.has(i)) st.unsure.add(i);
+      });
+    }
+    updatePenButton();
+    render();
+    validateSetup(false);
+  }
+  function reportPenDigits(cells) {
+    if (!st.solution || !st.unique) return;
+    const wrong = cells.filter(i => st.values[i] && st.values[i] !== st.solution[i]);
+    if (!wrong.length) { toast('ok', `All ${cells.length} of your digits are correct!`); return; }
+    toast('bad', `${wrong.length} of your ${cells.length} digits ${wrong.length === 1 ? 'is' : 'are'} wrong.`, {
+      label: 'Show', run: () => { st.wrong = new Set(wrong); render(); },
+    });
   }
 
   function restart() {
@@ -427,12 +463,19 @@
     else toast('ok', 'Good so far! You\'re on the right track.');
   }
   let toastTimer = 0;
-  function toast(kind, text) {
+  function toast(kind, text, action) {
     const t = $('toast');
-    t.className = 'toast ' + kind;
+    t.className = 'toast ' + kind + (action ? ' has-action' : '');
     t.textContent = text;
+    if (action) {
+      const b = document.createElement('button');
+      b.className = 'toast-btn';
+      b.textContent = action.label;
+      b.addEventListener('click', () => { action.run(); t.classList.add('hidden'); });
+      t.appendChild(b);
+    }
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => t.classList.add('hidden'), 3000);
+    toastTimer = setTimeout(() => t.classList.add('hidden'), action ? 8000 : 3000);
   }
 
   // ---------- assistant ----------
@@ -698,12 +741,13 @@
       crop.big = O.grayToCanvas(O.rotate(O.warp(crop.gray, crop.corners, 900), res.rotation)); // sharp copy for "Show photo"
       status.textContent = '';
       closeModals();
-      loadGrid(res.digits, { unsure: res.unsure, photo: true });
+      const penRead = res.pen && res.pen.some(Boolean) ? { pen: res.pen, unsure: res.penUnsure } : null;
+      loadGrid(res.digits, { unsure: res.unsure, photo: true, penRead });
       const n = res.digits.filter(Boolean).length;
       // Only repeat the grid check when it found a problem (clash, no solution, several solutions).
       const m = $('setup-msg'), problem = !m.classList.contains('hidden') && !m.classList.contains('ok');
       msg('setup-msg', problem ? 'bad' : res.unsure.size ? 'info' : 'ok',
-        `<p>I read <b>${n} printed digits</b>${res.handwritten ? ` and skipped ${res.handwritten} written in pen` : ''}${res.unsure.size ? `; check the ${res.unsure.size} in orange` : ''}.
+        `<p>I read <b>${n} printed digits</b>${res.unsure.size ? ` (check the ${res.unsure.size} in orange)` : ''}${penRead ? ` and ${penRead.pen.filter(Boolean).length} digits written in pen. Press <b>Add my digits</b> to keep yours too; I'll check them when you start` : ''}.
          Compare with your photo (<b>Show photo</b>), fix anything that's off, then press <b>Start solving</b>.</p>` + (problem ? m.innerHTML : ''));
     } catch (e) {
       status.textContent = '';
@@ -813,6 +857,7 @@
     }
     $('p-photo-back').addEventListener('click', leavePhoto);
     $('p-photo-toggle').addEventListener('click', () => showPhotoOverlay($('photo-overlay').classList.contains('hidden')));
+    $('p-pen-toggle').addEventListener('click', togglePenDigits);
     $('photo-overlay').addEventListener('click', () => showPhotoOverlay(false));
     $('p-read').addEventListener('click', readPhoto);
     $('opt-type').addEventListener('click', () => {

@@ -492,6 +492,7 @@
   }
 
   // Reads all digits from a straightened grid. opts.fonts overrides the reference fonts (for testing).
+  let PEN_MARGIN = 0.05;
   // Rotates a square grayscale image by k quarter turns clockwise.
   function rotate(img, k) {
     k = ((k % 4) + 4) % 4;
@@ -540,11 +541,63 @@
     // Printed givens are black; digits added by hand are often in coloured pen. If the digits'
     // ink clearly splits into near-black and coloured, keep only the black ones.
     const handwritten = opts.chroma ? colouredInk(pick.ink, pick.scores) : new Set();
+    // Pen digits are read on their own: one writer's digits are compared with each other (like
+    // a printed font) but not forced to fit the sudoku rules, since they may contain mistakes.
+    const penFeats = pick.feats.map((f, i) => (handwritten.has(i) ? f : null));
+    const penScores = pick.scores.map((sc, i) => (handwritten.has(i) ? sc : null));
     for (const i of handwritten) { pick.scores[i] = null; pick.feats[i] = null; }
     const res = resolveWithRules(refineWithPhotoFont(pick.feats, pick.scores));
     res.rotation = pick.rotation;
     res.handwritten = handwritten.size;
+    Object.assign(res, readPen(penFeats, penScores, res.digits, opts.labelOverride));
     return res;
+  }
+
+  // Reads digits written in pen and says which ones are wrong.
+  // Handwriting doesn't look like print, so the writer's own digits are the reference: the
+  // printed givens fix the solution, each pen digit is labelled with the solution digit for its
+  // cell, and every pen digit is compared with the writer's other digits (never itself). If it
+  // clearly looks like the writer's 5s while the solution says 3, it was written wrong. When it
+  // isn't clear, it is taken as written correctly but marked unsure - better than a false alarm.
+  function readPen(feats, scores, printed, labelOverride) {
+    const pen = new Array(81).fill(0), penWrong = new Set(), penUnsure = new Set();
+    const cells = feats.map((f, i) => (f ? i : -1)).filter(i => i >= 0);
+    if (!cells.length) return { pen, penWrong, penUnsure };
+    const sol = E && printed.filter(Boolean).length >= 17 ? E.solve(printed, 2) : null;
+    if (!sol || sol.count !== 1) {
+      // no unique solution to learn from: fall back to matching against fonts
+      refineWithPhotoFont(feats, scores).forEach((sc, i) => {
+        if (!sc) return;
+        const r = ranked(sc);
+        pen[i] = r[0];
+        penUnsure.add(i);
+      });
+      return { pen, penWrong, penUnsure };
+    }
+    const label = i => (labelOverride && labelOverride[i]) || sol.solution[i];
+    for (const i of cells) {
+      const own = new Array(10).fill(-9);
+      for (const j of cells) if (j !== i) { const s = sim(feats[i], feats[j]); if (s > own[label(j)]) own[label(j)] = s; }
+      const L = label(i);
+      if (own[L] === -9) {
+        // the only one of its digit: no handwriting sample to compare with, so compare font
+        // matches on both sides and only call it wrong when the difference is large
+        const r = ranked(scores[i]);
+        const other = r[0] === L ? r[1] : r[0];
+        if (scores[i][other] - scores[i][L] > PEN_MARGIN * 3) { pen[i] = other; penWrong.add(i); }
+        else pen[i] = L;
+        penUnsure.add(i);
+        continue;
+      }
+      let other = 0;
+      for (let d = 1; d <= 9; d++) if (d !== L && own[d] > own[other]) other = d;
+      const sL = own[L], sO = other ? own[other] : -9;
+      // wrong only when the writer's own digits AND the font match both point away from L
+      const fontAgrees = scores[i][other] > scores[i][L];
+      if (sO - sL > PEN_MARGIN && fontAgrees) { pen[i] = other; penWrong.add(i); }
+      else { pen[i] = L; if (sL - sO < PEN_MARGIN) penUnsure.add(i); }
+    }
+    return { pen, penWrong, penUnsure };
   }
 
   // Digits written in pen next to the printed ones. Split the digits at the biggest jump in
@@ -568,6 +621,6 @@
 
   return {
     grayFromRGBA, chromaFromRGBA, resize, adaptiveThreshold, detectGrid, warp, extractCells,
-    readDigits, rotate, grayToCanvas, features, buildTemplates, setOwnWeight: w => { OWN_WEIGHT = w; },
+    readDigits, rotate, grayToCanvas, features, buildTemplates, setOwnWeight: w => { OWN_WEIGHT = w; }, setPenMargin: m => { PEN_MARGIN = m; },
   };
 });
