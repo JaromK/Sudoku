@@ -167,6 +167,8 @@
 
   function renderPanel() {
     const setup = st.phase === 'setup';
+    document.body.classList.toggle('setup-phase', setup);
+    if (!setup) showPhotoOverlay(false);
     $('setup-panel').classList.toggle('hidden', !setup);
     $('assistant').classList.toggle('hidden', setup);
     $('given-count').textContent = st.values.filter(Boolean).length;
@@ -178,7 +180,7 @@
     $('keypad').className = 'keypad mode-' + mode;
     const counts = new Array(10).fill(0);
     for (const v of st.values) counts[v]++;
-    document.querySelectorAll('.key-btn').forEach(b => b.classList.toggle('done', mode === 'normal' && counts[+b.dataset.d] >= 9));
+    document.querySelectorAll('.key-btn').forEach(b => b.classList.toggle('done', mode !== 'colour' && counts[+b.dataset.d] >= 9));
     $('p-undo').disabled = !st.undo.length;
     $('p-redo').disabled = !st.redo.length;
     $('p-restart').disabled = setup;
@@ -331,6 +333,8 @@
     hideMsg('play-msg');
     hideMsg('setup-msg');
     $('photo-compare').classList.toggle('hidden', !opts.photo);
+    $('p-photo-toggle').classList.toggle('hidden', !opts.photo);
+    showPhotoOverlay(false);
     render();
     if (grid.some(Boolean)) validateSetup(false);
   }
@@ -348,6 +352,14 @@
     if (count > 1) { msg('setup-msg', 'info', '<p>This grid has <b>more than one solution</b>, so a digit may be missing. You can still start, but the assistant may get stuck.</p>'); return true; }
     msg('setup-msg', 'ok', `<p>Looks good: ${n} givens and exactly one solution.</p>`);
     return true;
+  }
+
+  // On phones the straightened photo is shown on top of the board (toggle) instead of below it.
+  function showPhotoOverlay(on) {
+    const ov = $('photo-overlay');
+    if (on) ov.getContext('2d').drawImage($('warp-canvas'), 0, 0);
+    ov.classList.toggle('hidden', !on);
+    $('p-photo-toggle').textContent = on ? 'Hide photo' : 'Show photo';
   }
 
   function startPlay() {
@@ -547,7 +559,7 @@
   function closeModals() { document.querySelectorAll('.modal').forEach(m => m.classList.add('hidden')); }
   function openNew() {
     $('paste-row').classList.add('hidden');
-    $('crop-panel').classList.add('hidden');
+    leavePhoto();
     hideMsg('new-msg');
     $('level-status').textContent = '';
     markLevel();
@@ -599,14 +611,23 @@
       ? 'I found the grid. Make sure the four handles sit on its outer corners (drag them if not), then press Read digits.'
       : 'I couldn\'t find the grid by myself. Drag the four handles onto the outer corners of the grid, then press Read digits.';
     $('paste-row').classList.add('hidden');
+    // Show the photo step on its own so the crop area and buttons aren't pushed off a phone screen.
+    $('new-card').classList.add('photo-mode');
     $('crop-panel').classList.remove('hidden');
     drawCrop();
+    $('dlg-new').scrollTop = 0;
+  }
+  function leavePhoto() {
+    $('new-card').classList.remove('photo-mode');
+    $('crop-panel').classList.add('hidden');
+    $('ocr-status').textContent = '';
+    hideMsg('new-msg');
   }
 
   function drawCrop() {
     const cv = $('crop-canvas');
     const maxW = Math.max(200, cv.parentElement.clientWidth || 560);
-    crop.scale = Math.min(1, maxW / crop.img.width, (window.innerHeight * 0.55) / crop.img.height);
+    crop.scale = Math.min(1, maxW / crop.img.width, (window.innerHeight * 0.5) / crop.img.height);
     cv.width = Math.round(crop.img.width * crop.scale);
     cv.height = Math.round(crop.img.height * crop.scale);
     const ctx = cv.getContext('2d');
@@ -658,20 +679,23 @@
 
   async function readPhoto() {
     const btn = $('p-read'), status = $('ocr-status');
+    if (!crop.gray || !crop.corners) return;
     btn.disabled = true;
     try {
+      status.textContent = 'Reading digits…';
+      await new Promise(r => setTimeout(r, 30)); // let the status show before the heavy work
       const grid = O.warp(crop.gray, crop.corners, 450);
-      status.textContent = 'Loading digit recognition (the first time takes a few seconds)…';
-      const res = await O.readDigits(grid, (k, n) => { status.textContent = `Reading digits… ${k} of ${n}`; });
+      const res = await O.readDigits(grid);
       $('warp-canvas').getContext('2d').drawImage(O.grayToCanvas(grid), 0, 0);
       status.textContent = '';
       closeModals();
       loadGrid(res.digits, { unsure: res.unsure, photo: true });
       const n = res.digits.filter(Boolean).length;
-      const check = $('setup-msg').classList.contains('hidden') ? '' : $('setup-msg').innerHTML;
-      msg('setup-msg', res.unsure.size ? 'info' : 'ok',
-        `<p>I read <b>${n} digits</b>.${res.unsure.size ? ` I'm not sure about the ${res.unsure.size} outlined in orange.` : ''}
-         Compare the grid with your photo below and fix anything that's off, then press <b>Start solving</b>.</p>` + check);
+      // Only repeat the grid check when it found a problem (clash, no solution, several solutions).
+      const m = $('setup-msg'), problem = !m.classList.contains('hidden') && !m.classList.contains('ok');
+      msg('setup-msg', problem ? 'bad' : res.unsure.size ? 'info' : 'ok',
+        `<p>I read <b>${n} digits</b>${res.unsure.size ? `; check the ${res.unsure.size} in orange` : ''}.
+         Compare with your photo (<b>Show photo</b>), fix anything that's off, then press <b>Start solving</b>.</p>` + (problem ? m.innerHTML : ''));
     } catch (e) {
       status.textContent = '';
       msg('new-msg', 'bad', `<p>${e.message || 'Reading the photo failed.'} You can still type the puzzle in.</p>`);
@@ -775,7 +799,12 @@
     document.querySelectorAll('.modal').forEach(m => m.addEventListener('click', e => { if (e.target === m) closeModals(); }));
 
     // new puzzle options
-    $('photo-input').addEventListener('change', e => { onPhoto(e.target.files[0]); e.target.value = ''; });
+    for (const id of ['photo-input', 'camera-input']) {
+      $(id).addEventListener('change', e => { onPhoto(e.target.files[0]); e.target.value = ''; });
+    }
+    $('p-photo-back').addEventListener('click', leavePhoto);
+    $('p-photo-toggle').addEventListener('click', () => showPhotoOverlay($('photo-overlay').classList.contains('hidden')));
+    $('photo-overlay').addEventListener('click', () => showPhotoOverlay(false));
     $('p-read').addEventListener('click', readPhoto);
     $('opt-type').addEventListener('click', () => {
       closeModals();
@@ -783,7 +812,7 @@
       st.sel = new Set([0]); st.cursor = 0;
       render();
     });
-    $('opt-paste').addEventListener('click', () => { $('crop-panel').classList.add('hidden'); $('paste-row').classList.remove('hidden'); $('paste-input').focus(); });
+    $('opt-paste').addEventListener('click', () => { $('crop-panel').classList.add('hidden'); $('paste-row').classList.remove('hidden'); $('paste-input').focus(); $('paste-row').scrollIntoView({ block: 'nearest' }); });
     $('paste-load').addEventListener('click', () => {
       const raw = $('paste-input').value.replace(/\s/g, '').replace(/[^0-9.]/g, '');
       if (raw.length !== 81) { msg('new-msg', 'bad', `<p>I need exactly 81 characters (digits, with 0 or . for blanks). Got ${raw.length}.</p>`); return; }

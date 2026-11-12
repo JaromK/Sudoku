@@ -2,16 +2,18 @@
 // 1. find the grid's four corners (largest connected blob of dark lines),
 // 2. straighten it with a perspective warp,
 // 3. cut out each cell, keep the big ink blob in the middle (small pencil marks are ignored),
-// 4. read the digit with Tesseract (loaded from a CDN only when needed).
+// 4. recognise each digit by matching it against digits drawn in many fonts, then against the
+//    photo's own confident digits (one puzzle uses one font),
+// 5. if the result breaks sudoku rules, swap the least certain reads for their next-best guesses.
+// Everything runs locally; nothing is downloaded.
 // Image functions work on { w, h, data } grayscale arrays so they also run in Node.
 (function (root, factory) {
-  const O = factory();
-  if (typeof module === 'object' && module.exports) module.exports = O;
+  const node = typeof module === 'object' && module.exports;
+  const O = factory(node ? require('./engine.js') : root.SudokuEngine);
+  if (node) module.exports = O;
   else root.SudokuOCR = O;
-})(typeof self !== 'undefined' ? self : this, function () {
+})(typeof self !== 'undefined' ? self : this, function (E) {
   'use strict';
-
-  const TESSERACT_URL = 'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js';
 
   // ---------- grayscale helpers ----------
   function grayFromRGBA(rgba, w, h) {
@@ -207,10 +209,28 @@
           if (!best || k.n > best.n) best = k;
         }
         if (!best) { cells.push(null); continue; }
+        // A digit can break into several pieces (the two loops of an 8, the bar of a 5):
+        // grow the box with every piece that lines up with it and isn't a grid line.
+        const box = { minX: best.minX, maxX: best.maxX, minY: best.minY, maxY: best.maxY };
+        for (let grew = true; grew;) {
+          grew = false;
+          for (const k of comps) {
+            if (k === best) continue;
+            const bw = k.maxX - k.minX + 1, bh = k.maxY - k.minY + 1;
+            if (bw > size * 0.9 || bh > size * 0.98) continue;
+            if (k.minX >= box.minX && k.maxX <= box.maxX && k.minY >= box.minY && k.maxY <= box.maxY) continue;
+            const xOverlap = Math.min(k.maxX, box.maxX) - Math.max(k.minX, box.minX);
+            const yGap = Math.max(k.minY - box.maxY, box.minY - k.maxY);
+            if (xOverlap < -cs * 0.05 || yGap > cs * 0.12) continue;
+            const nb = { minX: Math.min(box.minX, k.minX), maxX: Math.max(box.maxX, k.maxX), minY: Math.min(box.minY, k.minY), maxY: Math.max(box.maxY, k.maxY) };
+            if (nb.maxX - nb.minX + 1 > size * 0.9 || nb.maxY - nb.minY + 1 > size * 0.98) continue;
+            Object.assign(box, nb); grew = true;
+          }
+        }
         // Re-threshold the digit's box with Otsu so thin strokes survive blur.
         const pad = 2;
-        const minX = Math.max(x0, best.minX - pad), maxX = Math.min(x0 + size - 1, best.maxX + pad);
-        const minY = Math.max(y0, best.minY - pad), maxY = Math.min(y0 + size - 1, best.maxY + pad);
+        const minX = Math.max(x0, box.minX - pad), maxX = Math.min(x0 + size - 1, box.maxX + pad);
+        const minY = Math.max(y0, box.minY - pad), maxY = Math.min(y0 + size - 1, box.maxY + pad);
         const gw = maxX - minX + 1, gh = maxY - minY + 1;
         const hist = new Array(256).fill(0);
         for (let y = minY; y <= maxY; y++) for (let x = minX; x <= maxX; x++) hist[grid.data[y * N + x]]++;
@@ -240,137 +260,202 @@
     return t;
   }
 
-  // Draws a glyph as black-on-white, centred with padding, into RGBA (for Tesseract).
-  function glyphToRGBA(glyph, H) {
-    H = H || 40;
-    const pad = Math.round(H * 0.6);
-    const scale = H / glyph.h;
-    const gw = Math.max(1, Math.round(glyph.w * scale));
-    const W = gw + 2 * pad, HH = H + 2 * pad;
-    const out = new Uint8ClampedArray(W * HH * 4).fill(255);
-    for (let y = 0; y < H; y++) {
-      for (let x = 0; x < gw; x++) {
-        const sx = Math.min(glyph.w - 1, Math.floor(x / scale)), sy = Math.min(glyph.h - 1, Math.floor(y / scale));
-        if (glyph.data[sy * glyph.w + sx]) {
-          const p = ((y + pad) * W + x + pad) * 4;
-          out[p] = out[p + 1] = out[p + 2] = 0;
-        }
-      }
-    }
-    return { w: W, h: HH, rgba: out };
-  }
-
-  // ---------- browser-only parts ----------
-  let tessPromise = null;
-  function loadTesseract() {
-    if (tessPromise) return tessPromise;
-    tessPromise = new Promise((resolve, reject) => {
-      if (self.Tesseract) return resolve(self.Tesseract);
-      const s = document.createElement('script');
-      s.src = TESSERACT_URL;
-      s.onload = () => resolve(self.Tesseract);
-      s.onerror = () => { tessPromise = null; reject(new Error('Could not load the text-recognition library (are you online?)')); };
-      document.head.appendChild(s);
-    });
-    return tessPromise;
-  }
-
-  let workerPromise = null;
-  async function getWorker() {
-    if (workerPromise) return workerPromise;
-    workerPromise = (async () => {
-      const T = await loadTesseract();
-      const worker = await T.createWorker('eng');
-      await worker.setParameters({ tessedit_char_whitelist: '123456789', tessedit_pageseg_mode: '10' });
-      return worker;
-    })();
-    workerPromise.catch(() => { workerPromise = null; });
-    return workerPromise;
-  }
-
-  function rgbaToCanvas({ w, h, rgba }) {
-    const cv = document.createElement('canvas');
-    cv.width = w; cv.height = h;
-    cv.getContext('2d').putImageData(new ImageData(rgba, w, h), 0, 0);
-    return cv;
-  }
+  // ---------- digit recognition ----------
   function grayToCanvas(img) {
     const rgba = new Uint8ClampedArray(img.w * img.h * 4);
     for (let i = 0; i < img.data.length; i++) { rgba[i * 4] = rgba[i * 4 + 1] = rgba[i * 4 + 2] = img.data[i]; rgba[i * 4 + 3] = 255; }
-    return rgbaToCanvas({ w: img.w, h: img.h, rgba });
+    const cv = document.createElement('canvas');
+    cv.width = img.w; cv.height = img.h;
+    cv.getContext('2d').putImageData(new ImageData(rgba, img.w, img.h), 0, 0);
+    return cv;
   }
 
-  // Small fixed-size bitmap of a glyph, for comparing glyphs of the same font.
-  const PROTO = 16;
-  function normGlyph(g) {
-    const v = new Float32Array(PROTO * PROTO);
-    for (let y = 0; y < PROTO; y++) for (let x = 0; x < PROTO; x++) {
-      const x0 = Math.floor(x * g.w / PROTO), x1 = Math.max(x0 + 1, Math.floor((x + 1) * g.w / PROTO));
-      const y0 = Math.floor(y * g.h / PROTO), y1 = Math.max(y0 + 1, Math.floor((y + 1) * g.h / PROTO));
+  // Feature vector of a 0/1 glyph mask: scaled to a fixed height keeping its proportions
+  // (so a thin 1 stays thin), centred, area-averaged, lightly blurred, mean-centred and normalised.
+  const FS = 24;
+  function cropToInk(g) {
+    let minX = g.w, minY = g.h, maxX = -1, maxY = -1;
+    for (let y = 0; y < g.h; y++) for (let x = 0; x < g.w; x++) {
+      if (g.data[y * g.w + x]) { if (x < minX) minX = x; if (x > maxX) maxX = x; if (y < minY) minY = y; if (y > maxY) maxY = y; }
+    }
+    if (maxX < 0) return g;
+    const w = maxX - minX + 1, h = maxY - minY + 1, data = new Uint8Array(w * h);
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) data[y * w + x] = g.data[(y + minY) * g.w + x + minX];
+    return { w, h, data };
+  }
+  function features(g) {
+    g = cropToInk(g);
+    const v = new Float32Array(FS * FS);
+    const scale = FS / g.h, gw = Math.max(1, Math.min(FS, Math.round(g.w * scale)));
+    const off = Math.floor((FS - gw) / 2);
+    for (let y = 0; y < FS; y++) for (let x = 0; x < gw; x++) {
+      const x0 = Math.floor(x * g.w / gw), x1 = Math.max(x0 + 1, Math.floor((x + 1) * g.w / gw));
+      const y0 = Math.floor(y * g.h / FS), y1 = Math.max(y0 + 1, Math.floor((y + 1) * g.h / FS));
       let s = 0, n = 0;
       for (let yy = y0; yy < y1; yy++) for (let xx = x0; xx < x1; xx++) { s += g.data[yy * g.w + xx]; n++; }
-      v[y * PROTO + x] = s / n;
+      v[y * FS + x + off] = s / n;
     }
-    let mean = 0; for (const t of v) mean += t; mean /= v.length;
-    let norm = 0; for (let i = 0; i < v.length; i++) { v[i] -= mean; norm += v[i] * v[i]; }
+    const b = new Float32Array(FS * FS);
+    for (let y = 0; y < FS; y++) for (let x = 0; x < FS; x++) {
+      let s = 0, n = 0;
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+        const yy = y + dy, xx = x + dx;
+        if (yy < 0 || xx < 0 || yy >= FS || xx >= FS) continue;
+        const wgt = dx || dy ? 1 : 2; s += v[yy * FS + xx] * wgt; n += wgt;
+      }
+      b[y * FS + x] = s / n;
+    }
+    let mean = 0; for (const t of b) mean += t; mean /= b.length;
+    let norm = 0; for (let i = 0; i < b.length; i++) { b[i] -= mean; norm += b[i] * b[i]; }
     norm = Math.sqrt(norm) || 1;
-    for (let i = 0; i < v.length; i++) v[i] /= norm;
-    return v;
+    for (let i = 0; i < b.length; i++) b[i] /= norm;
+    return { v: b, aspect: g.w / g.h };
   }
-  const similarity = (a, b) => { let s = 0; for (let i = 0; i < a.length; i++) s += a[i] * b[i]; return s; };
+  const dot = (a, b) => { let s = 0; for (let i = 0; i < a.length; i++) s += a[i] * b[i]; return s; };
+  // shape similarity, minus a penalty when the width/height ratio differs a lot
+  const sim = (f, t) => dot(f.v, t.v) - 0.6 * Math.abs(Math.log(f.aspect / t.aspect));
 
-  // Classifies the extracted cells. recognize(rgbaGlyph, psm) -> Promise<{text, confidence}>.
-  async function classify(cells, recognize, onProgress) {
-    const todo = cells.map((c, i) => (c ? i : -1)).filter(i => i >= 0);
-    const digits = new Array(81).fill(0), conf = new Array(81).fill(0), unsure = new Set();
-    let done = 0;
-    for (const i of todo) {
-      const c = cells[i];
-      const rgba = glyphToRGBA(c.glyph, 40);
-      let best = { d: 0, conf: 0 };
-      for (const psm of ['10', '13', '8']) {
-        const r = await recognize(rgba, psm);
-        const txt = (r.text || '').replace(/[^1-9]/g, '');
-        if (txt.length === 1) { best = { d: +txt, conf: r.confidence || 0 }; if (best.conf >= 60) break; }
+  // Reference digits drawn in common fonts (browser only; built once).
+  const FONTS = ['Arial', 'Helvetica', 'Roboto', 'sans-serif', '"Times New Roman"', 'Georgia', 'serif',
+    'Verdana', '"Courier New"', 'monospace', '"Segoe UI"', 'Tahoma', 'Calibri', '"Trebuchet MS"', 'Consolas', 'Cambria'];
+  const WEIGHTS = [300, 400, 700];
+  // Each font is also drawn heavier and narrower, so condensed/black typefaces that aren't
+  // installed on the device still have something close to match against.
+  const VARIANTS = [{}, { stroke: 0.07 }, { sx: 0.72, stroke: 0.05 }];
+  let templates = null;
+  function buildTemplates(fonts) {
+    const out = [], seen = new Set(), S = 72, C = S * 2;
+    const cv = document.createElement('canvas'); cv.width = C; cv.height = C;
+    const x = cv.getContext('2d', { willReadFrequently: true });
+    for (const f of fonts || FONTS) for (const wt of WEIGHTS) for (const vr of VARIANTS) for (let d = 1; d <= 9; d++) {
+      x.fillStyle = '#fff'; x.fillRect(0, 0, C, C);
+      x.save();
+      if (vr.sx) { x.translate(S, 0); x.scale(vr.sx, 1); x.translate(-S, 0); }
+      x.fillStyle = '#000'; x.font = `${wt} ${S}px ${f}`; x.textAlign = 'center'; x.textBaseline = 'middle';
+      x.fillText(String(d), S, S);
+      if (vr.stroke) { x.strokeStyle = '#000'; x.lineJoin = 'round'; x.lineWidth = S * vr.stroke; x.strokeText(String(d), S, S); }
+      x.restore();
+      const px = x.getImageData(0, 0, C, C).data;
+      let minX = 1e9, minY = 1e9, maxX = -1, maxY = -1;
+      for (let y = 0; y < C; y++) for (let xx = 0; xx < C; xx++) {
+        if (px[(y * C + xx) * 4] < 128) { if (xx < minX) minX = xx; if (xx > maxX) maxX = xx; if (y < minY) minY = y; if (y > maxY) maxY = y; }
       }
-      digits[i] = best.d; conf[i] = best.conf;
-      onProgress && onProgress(++done, todo.length);
-    }
-    // Same-font templates from the confident reads; use them to settle doubtful cells.
-    const vecs = {};
-    for (const i of todo) vecs[i] = normGlyph(cells[i].glyph);
-    const protos = {};
-    for (const i of todo) if (digits[i] && conf[i] >= 75) (protos[digits[i]] = protos[digits[i]] || []).push(i);
-    for (const i of todo) {
-      if (digits[i] && conf[i] >= 75) continue;
-      let bestD = 0, bestS = -1;
-      for (const d in protos) for (const j of protos[d]) {
-        if (j === i) continue;
-        const sim = similarity(vecs[i], vecs[j]);
-        if (sim > bestS) { bestS = sim; bestD = +d; }
+      if (maxX < 0) continue;
+      const w = maxX - minX + 1, h = maxY - minY + 1, data = new Uint8Array(w * h);
+      let hash = 7;
+      for (let y = 0; y < h; y++) for (let xx = 0; xx < w; xx++) {
+        const on = px[((y + minY) * C + xx + minX) * 4] < 128 ? 1 : 0;
+        data[y * w + xx] = on;
+        if (on) hash = (hash * 31 + y * w + xx) % 1000000007;
       }
-      if (bestS > 0.85 && (bestD === digits[i] || !digits[i] || conf[i] < 50)) { digits[i] = bestD; conf[i] = 75; continue; }
-      if (!digits[i] && cells[i].aspect < 0.45) { digits[i] = 1; }
-      unsure.add(i);
+      const key = `${d}:${w}x${h}:${hash}`;
+      if (seen.has(key)) continue; // this font fell back to one already drawn
+      seen.add(key);
+      out.push({ d, ...features({ w, h, data }) });
     }
+    return out;
+  }
+
+  // Scores for digits 1..9 per glyph (index 0 unused); null for empty cells.
+  // A blob that looks like no digit at all (a speck, a smudge) is treated as an empty cell.
+  const MIN_MATCH = 0.5;
+  function scoreCells(feats, tpls) {
+    return feats.map(f => {
+      if (!f) return null;
+      const sc = new Array(10).fill(-9);
+      for (const t of tpls) { const s = sim(f, t); if (s > sc[t.d]) sc[t.d] = s; }
+      return Math.max(...sc) < MIN_MATCH ? null : sc;
+    });
+  }
+  const ranked = sc => [1, 2, 3, 4, 5, 6, 7, 8, 9].sort((a, b) => sc[b] - sc[a]);
+
+  // A puzzle is printed in one font: confident reads become extra templates for the rest.
+  let OWN_WEIGHT = 0.6;
+  function refineWithPhotoFont(feats, scores) {
+    for (let round = 0; round < 2; round++) {
+      const protos = [];
+      feats.forEach((f, i) => {
+        if (!f) return;
+        const r = ranked(scores[i]);
+        if (scores[i][r[0]] - scores[i][r[1]] > 0.08) protos.push({ d: r[0], i, ...f });
+      });
+      scores = feats.map((f, i) => {
+        if (!f) return null;
+        const own = new Array(10).fill(-9);
+        for (const p of protos) if (p.i !== i) { const s = sim(f, p); if (s > own[p.d]) own[p.d] = s; }
+        const k = OWN_WEIGHT;
+        return scores[i].map((s, d) => (d === 0 ? s : own[d] > -9 ? (1 - k) * s + k * own[d] : s));
+      });
+    }
+    return scores;
+  }
+
+  // Turn scores into digits. A real puzzle has exactly one solution; if the reading doesn't,
+  // try the next-best digit in the least certain cells (one, two, then three changes; cheapest
+  // wins). Falls back to "at least solvable" when no small change gives a unique solution.
+  function resolveWithRules(scores) {
+    const cells = [];
+    const digits = new Array(81).fill(0);
+    scores.forEach((sc, i) => {
+      if (!sc) return;
+      const r = ranked(sc);
+      digits[i] = r[0];
+      cells.push({ i, r, margin: sc[r[0]] - sc[r[1]] });
+    });
+    const solutions = g => E.solve(g, 2).count;
+    const changed = new Set();
+    const start = E && digits.filter(Boolean).length >= 17 ? solutions(digits) : 1;
+    if (start !== 1) {
+      const doubtful = cells.slice().sort((a, b) => a.margin - b.margin).slice(0, 12);
+      const options = [];
+      for (const c of doubtful) for (const alt of c.r.slice(1, 3)) options.push({ i: c.i, d: alt, cost: scores[c.i][c.r[0]] - scores[c.i][alt] });
+      let unique = null, solvable = null;
+      const tryCombo = combo => {
+        const cost = combo.reduce((s, o) => s + o.cost, 0);
+        if (unique && cost >= unique.cost) return;
+        const g = digits.slice();
+        for (const o of combo) g[o.i] = o.d;
+        const n = solutions(g);
+        if (n === 1) unique = { cost, combo };
+        else if (n > 1 && start === 0 && (!solvable || cost < solvable.cost)) solvable = { cost, combo };
+      };
+      for (let a = 0; a < options.length; a++) {
+        tryCombo([options[a]]);
+        for (let b = a + 1; b < options.length; b++) {
+          if (options[b].i === options[a].i) continue;
+          tryCombo([options[a], options[b]]);
+          for (let c = b + 1; c < options.length; c++) {
+            if (options[c].i === options[a].i || options[c].i === options[b].i) continue;
+            tryCombo([options[a], options[b], options[c]]);
+          }
+        }
+      }
+      const best = unique || solvable;
+      if (best) for (const o of best.combo) { digits[o.i] = o.d; changed.add(o.i); }
+    }
+    // A uniquely solvable reading is strong evidence; then only near-ties are worth a second look.
+    const unsure = new Set(changed);
+    const cut = start === 1 ? 0.015 : 0.04;
+    for (const c of cells) if (c.margin < cut) unsure.add(c.i);
     return { digits, unsure };
   }
 
-  // Reads all digits in the browser. onProgress(doneCount, total).
-  async function readDigits(grid, onProgress) {
+  // Reads all digits from a straightened grid. opts.fonts overrides the reference fonts (for testing).
+  async function readDigits(grid, onProgress, opts) {
     const cells = extractCells(grid);
     if (!cells.some(Boolean)) return { digits: new Array(81).fill(0), unsure: new Set() };
-    const worker = await getWorker();
-    let curPsm = '10';
-    return classify(cells, async (rgba, psm) => {
-      if (psm !== curPsm) { await worker.setParameters({ tessedit_pageseg_mode: psm }); curPsm = psm; }
-      const { data } = await worker.recognize(rgbaToCanvas(rgba));
-      return data;
-    }, onProgress);
+    if (opts && opts.fonts) templates = buildTemplates(opts.fonts);
+    else if (!templates) templates = buildTemplates();
+    const feats = cells.map(c => (c ? features(c.glyph) : null));
+    const first = scoreCells(feats, templates);
+    first.forEach((sc, i) => { if (!sc) feats[i] = null; }); // specks count as empty
+    const scores = refineWithPhotoFont(feats, first);
+    onProgress && onProgress(1, 1);
+    return resolveWithRules(scores);
   }
 
   return {
-    grayFromRGBA, resize, adaptiveThreshold, detectGrid, warp, extractCells, glyphToRGBA,
-    readDigits, classify, grayToCanvas, getWorker,
+    grayFromRGBA, resize, adaptiveThreshold, detectGrid, warp, extractCells,
+    readDigits, grayToCanvas, features, buildTemplates, setOwnWeight: w => { OWN_WEIGHT = w; },
   };
 });

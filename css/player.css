@@ -76,7 +76,7 @@ body.play-mode { background: #fff; }
   font-size: calc(var(--pcell) * .62); line-height: 1;
 }
 .pv.given { color: var(--p-ink); font-weight: 700; }
-.pv.user { color: var(--p-user); font-weight: 400; }
+.pv.user { color: var(--p-user); font-weight: 700; }
 .pv.clash { color: #e11d48 !important; }
 .pv.wrong { color: #e11d48 !important; text-decoration: underline wavy #e11d48; text-decoration-thickness: 2px; }
 .pv.preview { color: #16a34a; opacity: .55; font-weight: 700; }
@@ -143,7 +143,14 @@ body.play-mode { background: #fff; }
 }
 .key-btn:hover { background: var(--p-key-hover); }
 .key-btn:active { transform: scale(.97); }
-.key-btn.done { opacity: .35; }
+/* every copy of this digit is on the board: fade it and cross it out */
+.key-btn.done .dg { opacity: .35; }
+.key-btn.done::after {
+  content: ''; position: absolute; inset: 14% 26%; pointer-events: none;
+  background:
+    linear-gradient(to top right, transparent calc(50% - 1.5px), #e11d48 calc(50% - 1.5px), #e11d48 calc(50% + 1.5px), transparent calc(50% + 1.5px)),
+    linear-gradient(to top left, transparent calc(50% - 1.5px), #e11d48 calc(50% - 1.5px), #e11d48 calc(50% + 1.5px), transparent calc(50% + 1.5px));
+}
 .key-btn .dg { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
 .key-btn .sw { display: none; position: absolute; inset: 14%; border-radius: 8px; }
 .keypad.mode-centre .key-btn .dg { font-size: 1.1rem; color: var(--p-ink); }
@@ -160,7 +167,6 @@ body.play-mode { background: #fff; }
 .mode-btn:disabled { opacity: .4; cursor: default; }
 .mode-btn.active { background: var(--accent); color: #fff; }
 .mi { display: block; height: 22px; line-height: 22px; font-size: 1.15rem; font-weight: 700; }
-.mi-centre { font-size: .8rem; }
 .mi-colour {
   width: 22px; height: 22px; border-radius: 6px;
   background: conic-gradient(#f3a6a6, #f7c58c, #f2e188, #a6dd9f, #9ccdee, #bcb2f0, #efb1da, #f3a6a6);
@@ -348,3 +354,31 @@ body.play-mode { background: #fff; }
 .toast.info { background: #1f2937; color: #fff; }
 @keyframes toast-in { from { opacity: 0; transform: translate(-50%, -8px); } }
 @media (prefers-reduced-motion: reduce) { .toast { animation: none; } }
+
+/* New-puzzle dialog: the photo step replaces the option list */
+.modal-card.photo-mode .level-pick, .modal-card.photo-mode .new-options { display: none; }
+#new-msg { margin: 0 0 10px; }
+.crop-panel .row { margin-top: 10px; }
+
+/* straightened photo shown over the board while setting up (tap to hide) */
+.photo-overlay {
+  position: absolute; inset: 0; width: 100%; height: 100%; z-index: 7; cursor: pointer;
+  border: 3px solid var(--accent); background: #fff;
+}
+
+/* phones: setting up fits one screen, like playing */
+@media (max-width: 900px) {
+  body.setup-phase {
+    --pcell: min(calc((100vw - 14px) / 9), calc((100vh - 290px) / 9), 60px);
+    --pcell: min(calc((100vw - 14px) / 9), calc((100svh - 290px) / 9), 60px);
+  }
+  body.setup-phase .actions { display: none; }
+  body.setup-phase .keypad { order: 1; }
+  body.setup-phase .setup-panel { order: 2; }
+  .setup-panel { padding: 0; border: 0; background: none; border-radius: 0; }
+  .setup-panel .panel-title, .setup-panel > p, .photo-compare { display: none; }
+  .setup-btns { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 5px; margin-top: 0; }
+  .setup-btns .pbtn { padding: 9px 4px; font-size: .88rem; }
+  #setup-msg { margin-top: 6px; padding: 6px 10px; font-size: .8rem; line-height: 1.3; }
+  #setup-msg p { margin: 0; }
+}

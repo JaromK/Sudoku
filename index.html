@@ -4,8 +4,8 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Advanced Sudoku Trainer</title>
-  <link rel="stylesheet" href="css/style.css?v=20261112e">
-  <link rel="stylesheet" href="css/player.css?v=20261112e">
+  <link rel="stylesheet" href="css/style.css?v=20261112h">
+  <link rel="stylesheet" href="css/player.css?v=20261112h">
 </head>
 <body class="play-mode">
   <header class="appbar">
@@ -27,6 +27,7 @@
     <div class="play-board">
       <div class="board-frame">
         <div id="pboard" class="pboard" aria-label="Sudoku board"></div>
+        <canvas id="photo-overlay" class="photo-overlay hidden" width="450" height="450"></canvas>
         <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
         <div id="pause-cover" class="pause-cover hidden">
           <div class="pause-title">Paused</div>
@@ -39,9 +40,10 @@
       <div id="setup-panel" class="setup-panel hidden">
         <div class="panel-title">Setting up</div>
         <p>Select cells and type the given digits (Backspace clears). Givens so far: <b id="given-count">0</b>.</p>
-        <div class="row">
-          <button id="p-start" class="pbtn primary">Start solving</button>
+        <div class="row setup-btns">
           <button id="p-clear-board" class="pbtn">Clear grid</button>
+          <button id="p-photo-toggle" class="pbtn hidden">Show photo</button>
+          <button id="p-start" class="pbtn primary">Start solving</button>
         </div>
         <div id="setup-msg" class="msg hidden"></div>
         <div id="photo-compare" class="photo-compare hidden">
@@ -53,8 +55,8 @@
       <div id="keypad" class="keypad mode-normal">
         <div class="digits" id="digits"></div>
         <div class="modes">
-          <button class="mode-btn active" data-mode="normal" title="Normal digits (Z)"><span class="mi mi-normal">1</span>Normal</button>
-          <button class="mode-btn" data-mode="centre" title="Candidates (C, or hold Shift/Ctrl)"><span class="mi mi-centre">12</span>Candidates</button>
+          <button class="mode-btn active" data-mode="normal" title="Normal digits (Z)">Normal</button>
+          <button class="mode-btn" data-mode="centre" title="Candidates (C, or hold Shift/Ctrl)">Candidates</button>
           <button class="mode-btn" data-mode="colour" title="Colour (V)"><span class="mi mi-colour"></span>Colour</button>
           <button id="p-delete" class="mode-btn" title="Erase (Backspace)"><span class="mi">⌫</span>Delete</button>
         </div>
@@ -90,8 +92,9 @@
 
   <!-- New puzzle dialog -->
   <div id="dlg-new" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="dlg-new-title">
-    <div class="modal-card">
+    <div class="modal-card" id="new-card">
       <div class="modal-head"><h3 id="dlg-new-title">New puzzle</h3><button class="icon-btn" data-close title="Close">✕</button></div>
+      <div id="new-msg" class="msg hidden"></div>
       <div class="level-pick">
         <b>Random puzzle</b><span>Choose a level:</span>
         <div class="level-btns">
@@ -104,8 +107,12 @@
       </div>
       <div class="new-options">
         <label class="opt">
+          <input type="file" id="camera-input" accept="image/*" capture="environment" hidden>
+          <b>Take a photo</b><span>Point your camera at a printed puzzle. I'll find the grid and read the digits.</span>
+        </label>
+        <label class="opt">
           <input type="file" id="photo-input" accept="image/*" hidden>
-          <b>From a photo</b><span>Upload a picture or screenshot. I'll find the grid and read the digits.</span>
+          <b>Choose a picture</b><span>Use a photo or screenshot you already have.</span>
         </label>
         <button class="opt" id="opt-type"><b>Type it in</b><span>Start from an empty grid and enter the givens.</span></button>
         <button class="opt" id="opt-paste"><b>Paste as text</b><span>81 characters, row by row, with 0 or . for blanks.</span></button>
@@ -118,11 +125,11 @@
         <p id="crop-hint"></p>
         <canvas id="crop-canvas"></canvas>
         <div class="row">
+          <button class="pbtn" id="p-photo-back">Back</button>
           <button class="pbtn primary" id="p-read">Read digits</button>
           <span id="ocr-status" class="ocr-status"></span>
         </div>
       </div>
-      <div id="new-msg" class="msg hidden"></div>
     </div>
   </div>
 
@@ -243,13 +250,13 @@
     <footer class="foot">Puzzles are randomly shuffled from a generated bank, so each one is different.</footer>
   </div>
 
-  <script src="js/engine.js?v=20261112e"></script>
-  <script src="js/puzzles.js?v=20261112e"></script>
-  <script src="js/stepsolver.js?v=20261112e"></script>
-  <script src="js/ocr.js?v=20261112e"></script>
-  <script src="js/levels.js?v=20261112e"></script>
-  <script src="js/fireworks.js?v=20261112e"></script>
-  <script src="js/player.js?v=20261112e"></script>
-  <script src="js/app.js?v=20261112e"></script>
+  <script src="js/engine.js?v=20261112h"></script>
+  <script src="js/puzzles.js?v=20261112h"></script>
+  <script src="js/stepsolver.js?v=20261112h"></script>
+  <script src="js/ocr.js?v=20261112h"></script>
+  <script src="js/levels.js?v=20261112h"></script>
+  <script src="js/fireworks.js?v=20261112h"></script>
+  <script src="js/player.js?v=20261112h"></script>
+  <script src="js/app.js?v=20261112h"></script>
 </body>
 </html>
