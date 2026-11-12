@@ -5,7 +5,7 @@
   const E = window.SudokuEngine, S = window.StepSolver, O = window.SudokuOCR, L = window.SudokuLevels;
   const $ = id => document.getElementById(id);
   const name = E.cellName;
-  const SKEY = 'sudokuTrainer.player.v2', SETKEY = 'sudokuTrainer.settings', TABKEY = 'sudokuTrainer.tab', LVKEY = 'sudokuTrainer.level';
+  const SETKEY = 'sudokuTrainer.settings';
   const COLOURS = [null, '#c9ccd1', '#f3a6a6', '#f7c58c', '#f2e188', '#a6dd9f', '#9ccdee', '#bcb2f0', '#efb1da', '#9fe1d1'];
   const MODES = ['normal', 'centre', 'colour'];
   // One colour fills the cell; several split it into equal pie slices.
@@ -49,31 +49,6 @@
     const p = force != null ? force : !st.paused;
     if (p) { stopTimer(); st.paused = true; } else { st.paused = false; startTimer(); }
     render();
-  }
-
-  // ---------- persistence ----------
-  function save() {
-    try {
-      localStorage.setItem(SKEY, JSON.stringify({
-        phase: st.phase, values: st.values, given: st.given, corner: st.corner, centre: st.centre, colour: st.colour,
-        log: st.log, elapsed: elapsedNow(), solved: st.solved, mode: st.mode, level: st.level, colourBits: true,
-      }));
-    } catch (e) { /* ignore */ }
-  }
-  function restore() {
-    try {
-      const d = JSON.parse(localStorage.getItem(SKEY));
-      if (!d || !Array.isArray(d.values) || d.values.length !== 81) return false;
-      Object.assign(st, {
-        phase: d.phase === 'play' ? 'play' : 'setup', values: d.values, given: d.given, corner: d.corner || blank(),
-        centre: d.centre || blank(), colour: d.colour ? (d.colourBits ? d.colour : d.colour.map(c => (c ? 1 << c : 0))) : blank(), log: d.log || [], elapsed: d.elapsed || 0,
-        solved: !!d.solved, mode: MODES.includes(d.mode) ? d.mode : 'normal', level: L.LEVELS[d.level] ? d.level : null,
-      });
-      // Corner marks are no longer supported: fold any saved ones into the centre marks.
-      for (let i = 0; i < 81; i++) { st.centre[i] |= st.corner[i]; st.corner[i] = 0; }
-      computeSolution();
-      return true;
-    } catch (e) { return false; }
   }
 
   // ---------- undo / redo ----------
@@ -188,7 +163,6 @@
     }
     $('pboard').innerHTML = html;
     renderPanel();
-    save();
   }
 
   function renderPanel() {
@@ -581,16 +555,14 @@
 
   // ---------- levels ----------
   let generating = false;
-  function lastLevel() { try { const v = localStorage.getItem(LVKEY); return L.LEVELS[v] ? v : 'medium'; } catch (e) { return 'medium'; } }
-  function markLevel() {
-    const cur = lastLevel();
+  function markLevel(cur) {
+    cur = cur || st.level;
     document.querySelectorAll('.level-btn').forEach(b => b.classList.toggle('active', b.dataset.level === cur));
   }
   function newRandom(level) {
     if (generating) return;
     generating = true;
-    try { localStorage.setItem(LVKEY, level); } catch (e) { /* ignore */ }
-    markLevel();
+    markLevel(level);
     document.querySelectorAll('.level-btn').forEach(b => { b.disabled = true; });
     $('level-status').textContent = `Creating a ${L.LEVELS[level].name.toLowerCase()} puzzle…`;
     L.generate(level, r => {
@@ -716,7 +688,6 @@
     document.body.classList.toggle('play-mode', play);
     document.querySelectorAll('.app-tab').forEach(t => t.classList.toggle('active', t.dataset.app === which));
     if (play) startTimer(); else stopTimer();
-    try { localStorage.setItem(TABKEY, which); } catch (e) { /* ignore */ }
     if (play) render();
   }
 
@@ -827,19 +798,12 @@
     document.addEventListener('visibilitychange', () => { if (document.hidden) stopTimer(); else startTimer(); });
     window.addEventListener('resize', () => { if (crop.img && !$('crop-panel').classList.contains('hidden')) drawCrop(); });
     setInterval(() => { $('timer').textContent = fmt(elapsedNow()); }, 500);
-    setInterval(save, 5000);
 
-    if (!restore()) {
-      loadGrid(E.generatePuzzle().puzzle);
-      startPlay();
-      newRandom(lastLevel()); // replace the placeholder with a graded puzzle as soon as it's ready
-    } else if (st.phase === 'setup') {
-      render();
-      if (st.values.some(Boolean)) validateSetup(false);
-    }
-    let tab = 'play';
-    try { tab = localStorage.getItem(TABKEY) === 'learn' ? 'learn' : 'play'; } catch (e) { /* ignore */ }
-    showApp(tab);
+    // Every visit starts on the Play screen with a fresh Medium puzzle.
+    const first = L.generateSync('medium');
+    loadGrid(first.puzzle, { level: 'medium' });
+    startPlay();
+    showApp('play');
   }
 
   init();

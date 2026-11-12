@@ -68,5 +68,20 @@
     setTimeout(attempt, 0);
   }
 
-  return { LEVELS, grade, generate };
+  // Blocking version for page start-up, so the first board shown is already the right level.
+  function generateSync(levelId, budgetMs) {
+    const lv = LEVELS[levelId] || LEVELS.medium;
+    const deadline = Date.now() + (budgetMs || 3000);
+    let best = null;
+    do {
+      const r = E.generatePuzzle();
+      const g = grade(r.puzzle);
+      const miss = g < lv.min ? lv.min - g : g > lv.max ? g - lv.max : 0;
+      if (!best || miss < best.miss) best = { r, g, miss };
+      if (!miss) break;
+    } while (Date.now() < deadline);
+    return { puzzle: topUp(best.r.puzzle, best.r.solution, lv), solution: best.r.solution, level: levelId, grade: best.g };
+  }
+
+  return { LEVELS, grade, generate, generateSync };
 });

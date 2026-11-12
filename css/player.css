@@ -84,12 +84,12 @@ body.play-mode { background: #fff; }
 .pcentre {
   position: absolute; inset: 20% 5%; z-index: 2;
   display: flex; flex-wrap: wrap; align-items: center; align-content: center; justify-content: center;
-  color: var(--p-user); line-height: 1.1;
+  color: var(--p-ink); line-height: 1.1;
 }
 .pcentre span { font-size: calc(var(--pcell) * .25); padding: 0 1px; border-radius: 3px; }
 .pcentre.n5 span, .pcentre.n6 span { font-size: calc(var(--pcell) * .21); }
 .pcentre.n7 span, .pcentre.n8 span, .pcentre.n9 span { font-size: calc(var(--pcell) * .19); }
-.pcentre .hl { font-weight: 800; color: #0b3d91; }
+.pcentre .hl { font-weight: 800; color: #000; }
 .pcentre .focus { background: #fde047; color: var(--p-ink); font-weight: 700; }
 .pcentre .key { background: #4ade80; color: #052e16; font-weight: 700; }
 .pcentre .z { background: #fb923c; color: #431407; font-weight: 700; }
@@ -146,7 +146,7 @@ body.play-mode { background: #fff; }
 .key-btn.done { opacity: .35; }
 .key-btn .dg { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
 .key-btn .sw { display: none; position: absolute; inset: 14%; border-radius: 8px; }
-.keypad.mode-centre .key-btn .dg { font-size: 1.1rem; color: var(--p-user); }
+.keypad.mode-centre .key-btn .dg { font-size: 1.1rem; color: var(--p-ink); }
 .keypad.mode-colour .key-btn .dg { display: none; }
 .keypad.mode-colour .key-btn .sw { display: block; }
 
