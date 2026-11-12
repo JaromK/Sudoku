@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Advanced Sudoku Trainer</title>
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/player.css">
+</head>
+<body class="play-mode">
+  <header class="appbar">
+    <div class="brand">Sudoku <span>Trainer</span></div>
+    <nav class="app-tabs" role="tablist">
+      <button class="app-tab active" data-app="play" role="tab">Play</button>
+      <button class="app-tab" data-app="learn" role="tab">Learn techniques</button>
+    </nav>
+  </header>
+
+  <!-- ================= PLAY ================= -->
+  <div id="play-app" class="play">
+    <div class="play-board">
+      <div class="board-frame">
+        <div id="pboard" class="pboard" aria-label="Sudoku board"></div>
+        <div id="pause-cover" class="pause-cover hidden">
+          <div class="pause-title">Paused</div>
+          <button id="p-resume" class="pbtn primary">Resume</button>
+        </div>
+      </div>
+    </div>
+
+    <aside class="play-controls">
+      <div class="topline">
+        <div id="timer-wrap" class="timer-wrap">
+          <span id="timer" class="timer">0:00</span>
+          <button id="p-pause" class="icon-btn" title="Pause">❚❚</button>
+        </div>
+        <div class="top-actions">
+          <button id="p-new" class="pbtn">New puzzle</button>
+          <button id="p-settings" class="icon-btn" title="Settings">⚙</button>
+        </div>
+      </div>
+
+      <div id="setup-panel" class="setup-panel">
+        <div class="panel-title">Setting up</div>
+        <p>Select cells and type the given digits (Backspace clears). Givens so far: <b id="given-count">0</b>.</p>
+        <div class="row">
+          <button id="p-start" class="pbtn primary">Start solving</button>
+          <button id="p-clear-board" class="pbtn">Clear grid</button>
+        </div>
+        <div id="setup-msg" class="msg hidden"></div>
+        <div id="photo-compare" class="photo-compare hidden">
+          <div class="small-label">Your photo, straightened, to compare against</div>
+          <canvas id="warp-canvas" width="450" height="450"></canvas>
+        </div>
+      </div>
+
+      <div id="keypad" class="keypad mode-normal">
+        <div class="digits" id="digits"></div>
+        <div class="modes">
+          <button class="mode-btn active" data-mode="normal" title="Normal digits (Z)"><span class="mi mi-normal">1</span>Normal</button>
+          <button class="mode-btn" data-mode="corner" title="Corner marks (X, or hold Shift)"><span class="mi mi-corner">1<i>2</i></span>Corner</button>
+          <button class="mode-btn" data-mode="centre" title="Centre marks (C, or hold Ctrl)"><span class="mi mi-centre">12</span>Centre</button>
+          <button class="mode-btn" data-mode="colour" title="Colour (V)"><span class="mi mi-colour"></span>Colour</button>
+        </div>
+        <button id="p-delete" class="key-wide">Delete</button>
+        <div class="actions">
+          <button id="p-undo" class="pbtn" title="Undo (Ctrl+Z)">Undo</button>
+          <button id="p-redo" class="pbtn" title="Redo (Ctrl+Y)">Redo</button>
+          <button id="p-restart" class="pbtn" title="Clear your progress">Restart</button>
+          <button id="p-check" class="pbtn" title="Check for mistakes">Check</button>
+        </div>
+      </div>
+
+      <div id="assistant" class="assistant">
+        <div class="panel-title">Assistant</div>
+        <div class="row">
+          <button id="p-fill" class="pbtn" title="Put every possible candidate into the centre marks">Fill candidates</button>
+          <button id="p-clearmarks" class="pbtn">Clear all marks</button>
+        </div>
+        <div class="row">
+          <button id="p-hint" class="pbtn">Hint</button>
+          <button id="p-step" class="pbtn" title="Show the next step with a full explanation">Explain</button>
+          <button id="p-apply" class="pbtn primary" title="Apply the next step to the board">Apply</button>
+          <button id="p-solve" class="pbtn">Solve all</button>
+        </div>
+        <div id="step-box" class="step-box hidden">
+          <div class="tech-badge"></div>
+          <div class="step-body"></div>
+        </div>
+        <div id="play-msg" class="msg hidden"></div>
+        <details class="log"><summary>Steps taken (<span id="log-count">0</span>)</summary><ol id="log"></ol></details>
+      </div>
+    </aside>
+  </div>
+
+  <!-- New puzzle dialog -->
+  <div id="dlg-new" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="dlg-new-title">
+    <div class="modal-card">
+      <div class="modal-head"><h3 id="dlg-new-title">New puzzle</h3><button class="icon-btn" data-close title="Close">✕</button></div>
+      <div class="new-options">
+        <label class="opt">
+          <input type="file" id="photo-input" accept="image/*" hidden>
+          <b>From a photo</b><span>Upload a picture or screenshot. I'll find the grid and read the digits.</span>
+        </label>
+        <button class="opt" id="opt-type"><b>Type it in</b><span>Start from an empty grid and enter the givens.</span></button>
+        <button class="opt" id="opt-paste"><b>Paste as text</b><span>81 characters, row by row, with 0 or . for blanks.</span></button>
+        <button class="opt" id="opt-random"><b>Random puzzle</b><span>Generate a fresh puzzle to play.</span></button>
+      </div>
+      <div id="paste-row" class="paste-row hidden">
+        <input id="paste-input" placeholder="..3..6..9.7....62.2.49...." autocomplete="off" spellcheck="false">
+        <button class="pbtn primary" id="paste-load">Load</button>
+      </div>
+      <div id="crop-panel" class="crop-panel hidden">
+        <p id="crop-hint"></p>
+        <canvas id="crop-canvas"></canvas>
+        <div class="row">
+          <button class="pbtn primary" id="p-read">Read digits</button>
+          <span id="ocr-status" class="ocr-status"></span>
+        </div>
+      </div>
+      <div id="new-msg" class="msg hidden"></div>
+    </div>
+  </div>
+
+  <!-- Settings dialog -->
+  <div id="dlg-settings" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="dlg-set-title">
+    <div class="modal-card small">
+      <div class="modal-head"><h3 id="dlg-set-title">Settings</h3><button class="icon-btn" data-close title="Close">✕</button></div>
+      <label class="setting"><input type="checkbox" data-set="conflicts"> Show conflicts in red</label>
+      <label class="setting"><input type="checkbox" data-set="sameDigit"> Highlight cells with the same digit</label>
+      <label class="setting"><input type="checkbox" data-set="seen"> Shade the row, column and box of the selected cell</label>
+      <label class="setting"><input type="checkbox" data-set="autoClean"> Remove pencil marks automatically when placing a digit</label>
+      <label class="setting"><input type="checkbox" data-set="timer"> Show the timer</label>
+      <div class="shortcuts">
+        <div class="small-label">Keyboard</div>
+        <table>
+          <tr><td><kbd>1</kbd>–<kbd>9</kbd></td><td>Enter in the current mode</td></tr>
+          <tr><td><kbd>Shift</kbd> + digit</td><td>Corner mark</td></tr>
+          <tr><td><kbd>Ctrl</kbd> + digit</td><td>Centre mark</td></tr>
+          <tr><td><kbd>Z</kbd> <kbd>X</kbd> <kbd>C</kbd> <kbd>V</kbd></td><td>Normal / Corner / Centre / Colour mode</td></tr>
+          <tr><td><kbd>Space</kbd></td><td>Next mode</td></tr>
+          <tr><td>Drag, <kbd>Shift</kbd>/<kbd>Ctrl</kbd>+click</td><td>Select several cells</td></tr>
+          <tr><td>Double-click</td><td>Select all cells with that digit</td></tr>
+          <tr><td>Arrows</td><td>Move (with <kbd>Shift</kbd>: extend selection)</td></tr>
+          <tr><td><kbd>Backspace</kbd> / <kbd>Delete</kbd></td><td>Erase</td></tr>
+          <tr><td><kbd>Ctrl</kbd>+<kbd>Z</kbd> / <kbd>Ctrl</kbd>+<kbd>Y</kbd></td><td>Undo / Redo</td></tr>
+          <tr><td><kbd>Ctrl</kbd>+<kbd>A</kbd>, <kbd>Esc</kbd></td><td>Select all / deselect</td></tr>
+        </table>
+        <p class="small-note">Some browsers reserve Ctrl+1…9 for switching tabs. If that happens, use the C key for centre mode.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= LEARN ================= -->
+  <div id="learn-app" class="hidden">
+    <header class="top">
+      <p class="sub">Learn a pattern step by step, then practice it on real puzzles.</p>
+    </header>
+
+    <nav id="tech-nav" class="tech-nav" aria-label="Techniques"></nav>
+
+    <details class="primer">
+      <summary>Before you start: notation &amp; how these boards work</summary>
+      <ul>
+        <li><b>r4c7</b> means row 4, column 7. Rows are numbered top to bottom, columns left to right.</li>
+        <li>Small digits are <b>candidates</b> (pencil marks): the values a cell can still take.</li>
+        <li>Every board here already has the basic techniques applied: naked/hidden singles, locked candidates, naked/hidden pairs &amp; triples.
+          So when you see a board, the easy moves are used up and the advanced pattern is what's left.</li>
+        <li>Bold black digits are the puzzle's givens. Blue digits were filled in by the basic techniques.</li>
+        <li>A cell <b>sees</b> another cell if they share a row, a column or a box.</li>
+      </ul>
+    </details>
+
+    <main id="main">
+      <section class="tech-head">
+        <div>
+          <h2 id="tech-title"></h2>
+          <p id="tech-tagline" class="tagline"></p>
+        </div>
+        <div class="mode-tabs" role="tablist">
+          <button id="tab-learn" role="tab" class="tab active">Learn</button>
+          <button id="tab-practice" role="tab" class="tab">Practice</button>
+        </div>
+      </section>
+
+      <!-- LEARN -->
+      <section id="learn-view" class="view">
+        <div class="concept card">
+          <h3>The idea</h3>
+          <div id="concept"></div>
+          <h3>How to spot it</h3>
+          <ul id="tips"></ul>
+        </div>
+        <div class="workspace">
+          <div class="board-wrap" id="learn-board-wrap"></div>
+          <div class="side card">
+            <div class="step-count" id="step-count"></div>
+            <div class="step-text" id="step-text"></div>
+            <div class="btn-row">
+              <button id="step-prev" class="btn">&larr; Back</button>
+              <button id="step-next" class="btn primary">Next &rarr;</button>
+            </div>
+            <div class="btn-row">
+              <button id="learn-another" class="btn ghost">Show another example</button>
+              <button id="learn-go-practice" class="btn ghost">Practice this &rarr;</button>
+            </div>
+            <div class="legend" id="learn-legend"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- PRACTICE -->
+      <section id="practice-view" class="view hidden">
+        <div class="workspace">
+          <div class="board-wrap" id="practice-board-wrap"></div>
+          <div class="side card">
+            <div class="task" id="task"></div>
+            <div class="tool-group">
+              <div class="tool-label">Highlight digit <span class="kbd">1</span>–<span class="kbd">9</span></div>
+              <div class="digit-row" id="digit-row"></div>
+            </div>
+            <label class="toggle"><input type="checkbox" id="bival-toggle"> <span id="bival-label">Highlight bivalue cells</span></label>
+            <div class="btn-row">
+              <button id="btn-check" class="btn primary">Check</button>
+              <button id="btn-hint" class="btn">Hint</button>
+              <button id="btn-reveal" class="btn">Show answer</button>
+            </div>
+            <div class="btn-row">
+              <button id="btn-clear" class="btn ghost">Clear my marks</button>
+              <button id="btn-new" class="btn ghost">New puzzle</button>
+            </div>
+            <div id="feedback" class="feedback hidden"></div>
+            <div class="stats" id="stats"></div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="foot">Puzzles are randomly shuffled from a generated bank, so each one is different.</footer>
+  </div>
+
+  <script src="js/engine.js"></script>
+  <script src="js/puzzles.js"></script>
+  <script src="js/stepsolver.js"></script>
+  <script src="js/ocr.js"></script>
+  <script src="js/player.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
