@@ -20,6 +20,33 @@
   try { Object.assign(settings, JSON.parse(localStorage.getItem(SETKEY)) || {}); } catch (e) { /* ignore */ }
   function saveSettings() { try { localStorage.setItem(SETKEY, JSON.stringify(settings)); } catch (e) { /* ignore */ } }
 
+  // ---------- saved game: an unfinished puzzle resumes on the next visit ----------
+  const GAMEKEY = 'sudokuTrainer.game';
+  function saveGame() {
+    try {
+      if (st.phase !== 'play' || st.solved) { localStorage.removeItem(GAMEKEY); return; }
+      localStorage.setItem(GAMEKEY, JSON.stringify({
+        values: st.values, given: st.given, corner: st.corner, centre: st.centre, colour: st.colour,
+        log: st.log, elapsed: elapsedNow(), level: st.level || null,
+      }));
+    } catch (e) { /* ignore */ }
+  }
+  function loadSavedGame() {
+    let g;
+    try { g = JSON.parse(localStorage.getItem(GAMEKEY)); } catch (e) { return false; }
+    const ok = a => Array.isArray(a) && a.length === 81;
+    if (!g || !['values', 'given', 'corner', 'centre', 'colour'].every(k => ok(g[k]))) return false;
+    loadGrid(g.values.map((v, i) => (g.given[i] ? v : 0)), { level: g.level });
+    if (!st.solution) return false;
+    startPlay(true);
+    Object.assign(st, { values: g.values.slice(), corner: g.corner.slice(), centre: g.centre.slice(), colour: g.colour.slice(),
+      log: Array.isArray(g.log) ? g.log : [], elapsed: +g.elapsed || 0 });
+    checkSolved();
+    render();
+    saveGame();
+    return !st.solved;
+  }
+
   const blank = () => new Array(81).fill(0);
   const st = {
     phase: 'setup', values: blank(), given: new Array(81).fill(false), corner: blank(), centre: blank(), colour: blank(),
@@ -71,7 +98,7 @@
     afterChange();
     return true;
   }
-  function afterChange() { clearStep(); st.wrong.clear(); checkSolved(); render(); }
+  function afterChange() { clearStep(); st.wrong.clear(); checkSolved(); render(); saveGame(); }
   function doUndo() {
     if (!st.undo.length) return;
     st.redo.push(snap());
@@ -367,7 +394,7 @@
     $('p-photo-toggle').textContent = on ? 'Hide photo' : 'Show photo';
   }
 
-  function startPlay() {
+  function startPlay(resuming) {
     if (!validateSetup(true)) return;
     st.phase = 'play';
     st.given = st.values.map((v, i) => v > 0 && !st.pen.has(i));
@@ -376,10 +403,12 @@
       unsure: new Set(), wrong: new Set(), elapsed: 0, runningSince: null, paused: false, solved: false, mode: 'normal' });
     clearStep();
     hideMsg('setup-msg');
-    msg('play-msg', 'info', '<p>Select a cell and type a digit. Hold <kbd>Shift</kbd> or <kbd>Ctrl</kbd> to add candidates, or pick a mode next to the digits. Stuck? Press <b>Hint</b>.</p>');
+    if (resuming === true) msg('play-msg', 'info', '<p>Welcome back! Carry on with the puzzle you left.</p>');
+    else msg('play-msg', 'info', '<p>Select a cell and type a digit. Hold <kbd>Shift</kbd> or <kbd>Ctrl</kbd> to add candidates, or pick a mode next to the digits. Stuck? Press <b>Hint</b>.</p>');
     st.pen = new Set();
     startTimer();
     render();
+    saveGame();
     if (penCells.length) reportPenDigits(penCells);
   }
 
@@ -428,6 +457,7 @@
     hideMsg('play-msg');
     startTimer();
     render();
+    saveGame();
   }
 
   // ---------- checking ----------
@@ -462,7 +492,9 @@
     clearStep();
     if (st.solved) { toast('ok', `Solved! Time ${fmt(elapsedNow())}`); return; }
     if (!st.unique) { toast('info', 'This puzzle has more than one solution, so I can\'t check it.'); return; }
-    if (boardProblems()) toast('bad', 'Not quite. Something on the board is wrong.');
+    // Only the placed digits count here; candidates are the player's own notes.
+    const wrong = st.values.some((v, i) => v && !st.given[i] && v !== st.solution[i]);
+    if (wrong) toast('bad', 'Not quite. Something on the board is wrong.');
     else toast('ok', 'Good so far! You\'re on the right track.');
   }
   let toastTimer = 0;
@@ -882,14 +914,18 @@
 
     document.querySelectorAll('.app-tab').forEach(t => t.addEventListener('click', () => showApp(t.dataset.app)));
     document.addEventListener('keydown', onKey);
-    document.addEventListener('visibilitychange', () => { if (document.hidden) stopTimer(); else startTimer(); });
+    document.addEventListener('visibilitychange', () => { if (document.hidden) { stopTimer(); saveGame(); } else startTimer(); });
+    window.addEventListener('pagehide', saveGame);
+    setInterval(() => { if (st.runningSince != null) saveGame(); }, 5000);
     window.addEventListener('resize', () => { if (crop.img && !$('crop-panel').classList.contains('hidden')) drawCrop(); });
     setInterval(() => { $('timer').textContent = fmt(elapsedNow()); }, 500);
 
-    // Every visit starts on the Play screen with a fresh Medium puzzle.
-    const first = L.generateSync('medium');
-    loadGrid(first.puzzle, { level: 'medium' });
-    startPlay();
+    // Every visit starts on the Play screen: the unfinished puzzle from last time, or a fresh Medium one.
+    if (!loadSavedGame()) {
+      const first = L.generateSync('medium');
+      loadGrid(first.puzzle, { level: 'medium' });
+      startPlay();
+    }
     showApp('play');
   }
 
