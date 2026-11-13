@@ -220,8 +220,10 @@
   // Returns 81 entries: null (empty) or { glyph, core, aspect } where glyph is the digit with any
   // broken-off pieces merged in and core is just its biggest piece (each a {w,h,data 0/1 mask}).
   // chroma (optional): the same straightened view of chromaFromRGBA, to measure each digit's ink colour.
-  function extractCells(grid, chroma) {
+  // minH: the smallest digit height, as a share of the cell (smaller ink is taken as pencil marks).
+  function extractCells(grid, chroma, minH) {
     const N = grid.w, cs = N / 9;
+    minH = minH || 0.32;
     const mask = adaptiveThreshold(grid, Math.max(4, Math.round(cs / 4)), 12);
     // Re-threshold a box with Otsu so thin strokes survive blur.
     const glyphFrom = (box, x0, y0, size) => {
@@ -259,7 +261,7 @@
         const cx = x0 + size / 2, cy = y0 + size / 2;
         for (const k of comps) {
           const bw = k.maxX - k.minX + 1, bh = k.maxY - k.minY + 1;
-          if (bh < cs * 0.32 || bh > size * 0.98) continue;          // too small (pencil mark) or a line
+          if (bh < cs * minH || bh > size * 0.98) continue;          // too small (pencil mark) or a line
           if (bw > size * 0.9) continue;                              // horizontal line remnant
           if (bw / bh > 1.3) continue;                                // digits are taller than wide
           // must sit around the middle of the cell
@@ -422,7 +424,9 @@
 
   // A puzzle is printed in one font: confident reads become extra templates for the rest.
   let OWN_WEIGHT = 0.6;
+  const STRONG_MATCH = 0.84;
   function refineWithPhotoFont(feats, scores) {
+    const fontScores = scores;
     for (let round = 0; round < 2; round++) {
       const protos = [];
       feats.forEach((f, i) => {
@@ -434,7 +438,10 @@
         if (!f) return null;
         const own = new Array(10).fill(-9);
         for (const p of protos) if (p.i !== i) { const s = sim(f, p); if (s > own[p.d]) own[p.d] = s; }
-        const k = OWN_WEIGHT;
+        // A close font match is trusted as is. Small print makes the photo's 3, 5, 6 and 8 look
+        // alike, so leaning on them would only blur a clear reading; they help with odd fonts.
+        const top = Math.max(...fontScores[i]);
+        const k = OWN_WEIGHT * Math.min(1, Math.max(0, (STRONG_MATCH - top) / 0.15));
         return scores[i].map((s, d) => (d === 0 ? s : own[d] > -9 ? (1 - k) * s + k * own[d] : s));
       });
     }
@@ -509,8 +516,8 @@
 
   // Scores every cell of a straightened grid: the digit with and without its merged pieces,
   // keeping whichever looks more like a digit.
-  function scoreGrid(grid, chroma) {
-    const cells = extractCells(grid, chroma);
+  function scoreGrid(grid, chroma, minH) {
+    const cells = extractCells(grid, chroma, minH);
     const best = sc => (sc ? Math.max(...sc) : -9);
     const featsA = cells.map(c => (c ? features(c.glyph) : null));
     const featsB = cells.map(c => (c ? features(c.core) : null));
@@ -531,16 +538,30 @@
     opts = opts || {};
     if (opts.fonts) templates = buildTemplates(opts.fonts);
     else if (!templates) templates = buildTemplates();
-    let pick = null;
-    for (let k = 0; k < 4; k++) {
-      const r = scoreGrid(rotate(grid, k), opts.chroma && rotate(opts.chroma, k));
-      if (!pick || r.quality > pick.quality) pick = { ...r, rotation: k };
+    // Some puzzles print small digits (under a third of the cell). If the usual size finds too
+    // few digits for a real puzzle, look again accepting smaller ones.
+    const tryTurns = minH => {
+      let best = null;
+      for (let k = 0; k < 4; k++) {
+        const r = scoreGrid(rotate(grid, k), opts.chroma && rotate(opts.chroma, k), minH);
+        if (!best || r.quality > best.quality) best = { ...r, rotation: k };
+      }
+      return best;
+    };
+    let pick = tryTurns(0.32);
+    if (pick.count < 17) {
+      const small = tryTurns(0.22);
+      if (small.count > pick.count) pick = small;
     }
     onProgress && onProgress(1, 1);
     if (!pick.count) return { digits: new Array(81).fill(0), unsure: new Set(), rotation: 0, handwritten: 0 };
     // Printed givens are black; digits added by hand are often in coloured pen. If the digits'
     // ink clearly splits into near-black and coloured, keep only the black ones.
     const handwritten = opts.chroma ? colouredInk(pick.ink, pick.scores) : new Set();
+    // Handwriting in black pen has the same ink as the print, but its shape matches the fonts far
+    // worse than the printed digits do.
+    // (Only when no coloured pen was found: someone writing in colour isn't also writing in black.)
+    if (!handwritten.size) for (const i of oddShapes(pick.scores, handwritten)) handwritten.add(i);
     // Pen digits are read on their own: one writer's digits are compared with each other (like
     // a printed font) but not forced to fit the sudoku rules, since they may contain mistakes.
     const penFeats = pick.feats.map((f, i) => (handwritten.has(i) ? f : null));
@@ -598,6 +619,18 @@
       else { pen[i] = L; if (sL - sO < PEN_MARGIN) penUnsure.add(i); }
     }
     return { pen, penWrong, penUnsure };
+  }
+
+  // Digits that look like no font while the rest of the puzzle matches the fonts closely.
+  function oddShapes(scores, skip) {
+    const idx = scores.map((s, i) => (s && !skip.has(i) ? i : -1)).filter(i => i >= 0);
+    if (idx.length < 18) return [];
+    const top = i => Math.max(...scores[i]);
+    const sorted = idx.map(top).sort((a, b) => a - b);
+    const median = sorted[sorted.length >> 1];
+    if (median < 0.8) return [];
+    const odd = idx.filter(i => top(i) < median - 0.25);
+    return idx.length - odd.length >= 17 ? odd : [];
   }
 
   // Digits written in pen next to the printed ones. Split the digits at the biggest jump in
