@@ -302,6 +302,12 @@
     return x < 0 || y < 0 || x > 8 || y > 8 ? -1 : y * 9 + x;
   }
   let drag = null;
+  function sameGroup(i) {
+    const all = [...Array(81).keys()];
+    if (st.colour[i]) return all.filter(j => st.colour[j] === st.colour[i]);
+    if (st.values[i]) return all.filter(j => st.values[j] === st.values[i]);
+    return null;
+  }
   function initBoardPointer() {
     const board = $('pboard');
     board.addEventListener('pointerdown', e => {
@@ -312,7 +318,15 @@
       const multi = e.shiftKey || e.ctrlKey || e.metaKey;
       if (multi && st.sel.has(i) && (e.ctrlKey || e.metaKey)) { st.sel.delete(i); drag = { remove: true }; }
       else if (multi) { st.sel.add(i); drag = { remove: false }; }
-      else { st.sel = new Set([i]); drag = { remove: false }; }
+      else {
+        // In colour mode a tap on a coloured cell picks every cell of that colour (or, on an
+        // uncoloured cell, every cell with the same big number) so they can be recoloured together.
+        // Tapping again inside that group narrows it to the one cell.
+        const group = st.mode === 'colour' && st.phase === 'play' ? sameGroup(i) : null;
+        const inGroup = st.sel.size > 1 && st.sel.has(i) && group && group.length === st.sel.size && group.every(j => st.sel.has(j));
+        st.sel = new Set(group && group.length > 1 && !inGroup ? group : [i]);
+        drag = { remove: false };
+      }
       st.cursor = i;
       try { board.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
       render();

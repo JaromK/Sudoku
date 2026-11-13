@@ -1,5 +1,5 @@
 // Sudoku logic engine: generation, candidate tracking, basic solving and
-// pattern finders for X-Wing, Swordfish, Y-Wing and XYZ-Wing.
+// pattern finders for X-Wing, Swordfish, Skyscraper, Y-Wing and XYZ-Wing.
 // Works in the browser (window.SudokuEngine) and in Node (module.exports).
 (function (root, factory) {
   const E = factory();
@@ -303,11 +303,49 @@
     return res;
   }
 
+  // Skyscraper: two parallel lines where a digit has exactly two spots each. One end of each
+  // shares a cross line (the base); the other two ends (the tops) are in different cross lines.
+  // One of the tops must hold the digit, so any cell seeing both tops loses it.
+  function findSkyscraper(s) {
+    const res = [];
+    for (let d = 1; d <= 9; d++) {
+      const b = 1 << d;
+      for (const orient of ['row', 'col']) {
+        const lines = orient === 'row' ? ROWS : COLS;
+        const cross = orient === 'row' ? COL_OF : ROW_OF;
+        const pairs = [];
+        for (let li = 0; li < 9; li++) {
+          const cells = lines[li].filter(i => s.cands[i] & b);
+          if (cells.length === 2) pairs.push({ li, cells });
+        }
+        for (const [A, B] of combos(pairs, 2)) {
+          for (let ka = 0; ka < 2; ka++) {
+            for (let kb = 0; kb < 2; kb++) {
+              const baseA = A.cells[ka], baseB = B.cells[kb];
+              const topA = A.cells[1 - ka], topB = B.cells[1 - kb];
+              if (cross[baseA] !== cross[baseB] || cross[topA] === cross[topB]) continue;
+              const elims = [];
+              for (let i = 0; i < 81; i++) {
+                if (i !== topA && i !== topB && (s.cands[i] & b) && sees(i, topA) && sees(i, topB)) elims.push({ cell: i, digit: d });
+              }
+              if (elims.length) {
+                res.push({ type: 'skyscraper', digit: d, orient, lines: [A.li, B.li], bases: [baseA, baseB],
+                  tops: [topA, topB], cells: [baseA, topA, baseB, topB], elims });
+              }
+            }
+          }
+        }
+      }
+    }
+    return res;
+  }
+
   const FINDERS = {
     xwing: s => findFish(s, 2),
     swordfish: s => findFish(s, 3),
     ywing: findYWing,
     xyzwing: findXYZWing,
+    skyscraper: findSkyscraper,
   };
 
   // ---------- validity-preserving shuffles ----------
@@ -332,6 +370,6 @@
   return {
     ROW_OF, COL_OF, BOX_OF, ROWS, COLS, BOXES, PEERS, sees, popcount, digitsOf, cellName,
     solve, generatePuzzle, makeState, cloneState, applyBasics, isSolved,
-    findFish, findYWing, findXYZWing, FINDERS, randomTransform, parse, stringify, shuffle,
+    findFish, findYWing, findXYZWing, findSkyscraper, FINDERS, randomTransform, parse, stringify, shuffle,
   };
 });

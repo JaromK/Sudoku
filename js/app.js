@@ -73,6 +73,49 @@
     return steps;
   }
 
+  function skyscraperSteps(inst) {
+    const d = inst.digit;
+    const isRow = inst.orient === 'row';
+    const lineWord = isRow ? 'row' : 'column', crossWord = isRow ? 'column' : 'row';
+    const lines = isRow ? E.ROWS : E.COLS;
+    const cross = isRow ? E.COL_OF : E.ROW_OF;
+    const [bA, bB] = inst.bases, [tA, tB] = inst.tops;
+    const steps = [];
+    const deco = newDeco();
+    steps.push({
+      text: `<p>A Skyscraper is about a single digit. Focus on digit ${b(d)}: every cell that can still be a ${d} is highlighted in yellow.</p>
+             <p>We're looking for two ${lineWord}s where ${d} has <b>exactly two</b> spots.</p>`,
+      deco: newDeco(), focus: d,
+    });
+    inst.lines.forEach((li, k) => {
+      for (const i of lines[li]) addCell(deco, i, 'line-base');
+      const [base, top] = [inst.bases[k], inst.tops[k]];
+      addCell(deco, base, 'base'); addCand(deco, base, d, 'key');
+      addCell(deco, top, 'pincer'); addCand(deco, top, d, 'z');
+      steps.push({
+        text: k === 0
+          ? `<p>In ${lineWord} ${li + 1}, the ${d} can only go in two places: ${name(base)} and ${name(top)}.</p>`
+          : `<p>${lineWord[0].toUpperCase() + lineWord.slice(1)} ${li + 1} also has just two spots: ${name(base)} and ${name(top)}.</p>
+             <p>One end of each ${lineWord} sits in the <b>same ${crossWord}</b> (${crossWord} ${cross[bA] + 1}, in blue). This is the <b>base</b> of the skyscraper.
+             The other two ends, the <b>tops</b> (in orange), are in different ${crossWord}s.</p>`,
+        deco: JSON.parse(JSON.stringify(deco)), focus: d,
+      });
+    });
+    steps.push({
+      text: `<p>The two base cells ${name(bA)} and ${name(bB)} are in the same ${crossWord}, so <b>at most one</b> of them is a ${d}.</p>
+             <p>If ${name(bA)} isn't ${d}, then ${lineWord} ${inst.lines[0] + 1} puts its ${d} on top, at ${name(tA)}. If ${name(bB)} isn't ${d}, then ${name(tB)} is.
+             At least one base is not a ${d}, so <b>at least one of the tops, ${name(tA)} or ${name(tB)}, is a ${d}</b>.</p>`,
+      deco: JSON.parse(JSON.stringify(deco)), focus: d,
+    });
+    for (const e of inst.elims) { addCell(deco, e.cell, 'target'); addCand(deco, e.cell, d, 'elim'); }
+    steps.push({
+      text: `<p>So any cell that sees <b>both tops</b> can't be ${d}: it would clash with whichever top turns out to be the ${d}.</p>
+             <p><b>Eliminate ${d} from ${list(inst.elims.map(e => name(e.cell)))}.</b></p>`,
+      deco, focus: d, final: true,
+    });
+    return steps;
+  }
+
   function wingSteps(inst, state, xyz) {
     const P = inst.pivot, [A, B] = inst.pincers, z = inst.z;
     const pd = inst.pivotDigits;
@@ -156,6 +199,21 @@
       hint1: inst => ({ text: `Look at digit <b>${inst.digit}</b> in the ${inst.orient === 'row' ? 'rows' : 'columns'}.`, focus: inst.digit }),
       fish: true,
     },
+    skyscraper: {
+      title: 'Skyscraper', family: 'Single digit',
+      tagline: 'Two lines with two spots each, joined at the bottom: one of the tops is the digit.',
+      concept: `<p>Pick a digit. Find two rows where it fits in <b>exactly two</b> cells. One cell of each row is in the <b>same column</b> (the base);
+        the other two (the tops) are in <b>different</b> columns. If the tops were in the same column too, it would be an X-Wing.</p>
+        <p>The two base cells share a column, so at most one of them is the digit. That forces the digit onto at least one of the tops.
+        So any cell that sees <b>both tops</b> can't hold the digit. The same works with rows and columns swapped.</p>`,
+      tips: ['Work one digit at a time. Use the digit highlighter.',
+        'List the rows (or columns) where the digit appears exactly twice.',
+        'Look for two of them that line up on one end but not the other. It looks like two towers of different heights.',
+        'Eliminate the digit from cells that see both tops: usually in the boxes of the tops, in line with the other top.'],
+      steps: inst => skyscraperSteps(inst),
+      hint1: inst => ({ text: `Look at digit <b>${inst.digit}</b> in the ${inst.orient === 'row' ? 'rows' : 'columns'} where it has exactly two spots.`, focus: inst.digit }),
+      sky: true,
+    },
     ywing: {
       title: 'Y-Wing', family: 'Wings', aka: 'also called XY-Wing',
       tagline: 'Three two-candidate cells that close in on one digit.',
@@ -183,7 +241,7 @@
       hint1: inst => ({ text: `The pivot is the three-candidate cell <b>${name(inst.pivot)}</b>.`, pivot: inst.pivot }),
     },
   };
-  const ORDER = ['xwing', 'swordfish', 'ywing', 'xyzwing'];
+  const ORDER = ['xwing', 'swordfish', 'skyscraper', 'ywing', 'xyzwing'];
 
   // ---------- puzzle loading ----------
   function loadPuzzle(tech, idx, transform) {
@@ -292,7 +350,9 @@
 
   // ---------- learn ----------
   function legendHtml(t) {
-    const items = t.fish
+    const items = t.sky
+      ? [['#fde047', 'the digit we focus on'], ['#bfdbfe', 'base (same line)'], ['#fde68a', 'tops'], ['#fee2e2', 'cells that see both tops'], ['#ef4444', 'eliminated']]
+      : t.fish
       ? [['#fde047', 'the digit we focus on'], ['#bfdbfe', 'pattern cells'], ['#4ade80', 'pattern candidates'], ['#fef3c7', 'lines being cleared'], ['#ef4444', 'eliminated']]
       : [['#ddd6fe', 'pivot'], ['#fde68a', 'pincers'], ['#fb923c', 'the shared digit'], ['#fee2e2', 'cells affected'], ['#ef4444', 'eliminated']];
     return items.map(([c, l]) => `<span><span class="sw" style="background:${c}"></span>${l}</span>`).join('');
