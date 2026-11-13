@@ -116,6 +116,62 @@
     return steps;
   }
 
+  // A copy of the board with the assumed digit and the first n forced moves filled in.
+  function hypoState(state, inst, n) {
+    const h = E.cloneState(state);
+    const put = (i, d) => { h.values[i] = d; h.given[i] = false; h.cands[i] = 0; for (const p of E.PEERS[i]) h.cands[p] &= ~(1 << d); };
+    put(inst.pivot, inst.digit);
+    inst.trail.slice(0, n).forEach(t => put(t.cell, t.d));
+    return h;
+  }
+  function ifThenSteps(inst, state) {
+    const P = inst.pivot, d = inst.digit, o = inst.other, T = inst.trail;
+    const steps = [];
+    const hypoDeco = n => {
+      const deco = newDeco();
+      addCell(deco, P, 'pivot hypo');
+      T.slice(0, n).forEach((t, k) => addCell(deco, t.cell, k === n - 1 ? 'base hypo' : 'hypo'));
+      return deco;
+    };
+    let deco = newDeco();
+    addCell(deco, P, 'pivot');
+    addCand(deco, P, d, 'key'); addCand(deco, P, o, 'z');
+    steps.push({
+      text: `<p>None of the patterns work on this board, so we ask <b>"what if?"</b>.</p>
+             <p>Pick a cell with only <b>two</b> candidates: ${name(P)} ${set([d, o].sort())}. One of them is right.
+             Let's test one of them: <b>what if ${name(P)} were ${d}?</b></p>`,
+      deco,
+    });
+    steps.push({
+      text: `<p>Suppose ${name(P)} = ${b(d)} (in purple italics: it's only an assumption, not a real move).</p>
+             <p>That removes ${d} from every cell ${name(P)} sees. Now look for moves that are <b>forced</b>: a cell with one candidate left, or a digit with one place left in a row, column or box.</p>`,
+      deco: hypoDeco(0), state: hypoState(state, inst, 0),
+    });
+    T.forEach((t, k) => {
+      steps.push({
+        text: `<p>${k === 0 ? 'Then' : 'And then'} ${name(t.cell)} must be ${b(t.d)}: ${t.why}.</p>`,
+        deco: hypoDeco(k + 1), state: hypoState(state, inst, k + 1),
+      });
+    });
+    deco = hypoDeco(T.length);
+    if (inst.dead.cell != null) addCell(deco, inst.dead.cell, 'target');
+    else for (const i of E.UNITS[inst.dead.unit]) if (!deco.cell[i]) addCell(deco, i, 'target');
+    steps.push({
+      text: `<p><b>Dead end:</b> ${inst.dead.why}. A real sudoku can never get into that state.</p>
+             <p>Every move after the assumption was forced, so the only thing that can be wrong is the assumption itself.</p>`,
+      deco, state: hypoState(state, inst, T.length),
+    });
+    deco = newDeco();
+    addCell(deco, P, 'pivot target');
+    addCand(deco, P, d, 'elim'); addCand(deco, P, o, 'key');
+    steps.push({
+      text: `<p>So ${name(P)} can't be ${d}. <b>Eliminate ${d} from ${name(P)}.</b></p>
+             <p>That leaves only ${b(o)}, so ${name(P)} = ${o}. Erase the assumed digits and carry on from there.</p>`,
+      deco, final: true,
+    });
+    return steps;
+  }
+
   function wingSteps(inst, state, xyz) {
     const P = inst.pivot, [A, B] = inst.pincers, z = inst.z;
     const pd = inst.pivotDigits;
@@ -214,6 +270,23 @@
       hint1: inst => ({ text: `Look at digit <b>${inst.digit}</b> in the ${inst.orient === 'row' ? 'rows' : 'columns'} where it has exactly two spots.`, focus: inst.digit }),
       sky: true,
     },
+    ifthen: {
+      title: 'If-Then', article: 'an', family: 'Last resort', aka: 'also called What-If or Contradiction',
+      tagline: 'Assume a digit, follow the forced moves, and see if it breaks.',
+      concept: `<p>When no pattern helps, pick a cell with <b>two</b> candidates and ask: <b>what if it were the first one?</b>
+        Write it in lightly and follow only the moves that are <b>forced</b>: singles, and a digit with one place left in a row, column or box.</p>
+        <p>If you reach a <b>dead end</b> (a cell with no candidates, a digit with no place left in a row, column or box, or the same digit twice in one), the assumption was wrong.
+        Remove that candidate; the cell must be the other one.</p>
+        <p>If there's no dead end, you've learned <b>nothing</b>: it doesn't prove the assumption is right. Erase everything you assumed and try the other candidate, or another cell.</p>`,
+      tips: ['Use it only after the patterns you know have failed.',
+        'Start in a cell with exactly two candidates. Turn on "Highlight bivalue cells".',
+        'Pick a cell that causes a lot: its digits should have only two or three places left in its row, column or box. Then each assumption sets off a chain of forced moves.',
+        'In the Play screen, mark the assumed cells with a colour (colour mode) so you can find them again and erase them.',
+        "Stop when you hit a dead end, or after several moves with nothing forced. Never keep an assumption that didn't break: it's a guess, not logic."],
+      steps: (inst, s) => ifThenSteps(inst, s),
+      hint1: inst => ({ text: `Ask "what if" in the two-candidate cell <b>${name(inst.pivot)}</b>. Try each of its candidates.`, pivot: inst.pivot }),
+      ifthen: true,
+    },
     ywing: {
       title: 'Y-Wing', family: 'Wings', aka: 'also called XY-Wing',
       tagline: 'Three two-candidate cells that close in on one digit.',
@@ -241,7 +314,7 @@
       hint1: inst => ({ text: `The pivot is the three-candidate cell <b>${name(inst.pivot)}</b>.`, pivot: inst.pivot }),
     },
   };
-  const ORDER = ['xwing', 'swordfish', 'skyscraper', 'ywing', 'xyzwing'];
+  const ORDER = ['xwing', 'swordfish', 'skyscraper', 'ywing', 'xyzwing', 'ifthen'];
 
   // ---------- puzzle loading ----------
   function loadPuzzle(tech, idx, transform) {
@@ -350,7 +423,9 @@
 
   // ---------- learn ----------
   function legendHtml(t) {
-    const items = t.sky
+    const items = t.ifthen
+      ? [['#ddd6fe', 'the cell we test'], ['#7c3aed', 'assumed digits'], ['#bfdbfe', 'newest forced move'], ['#fee2e2', 'dead end'], ['#ef4444', 'eliminated']]
+      : t.sky
       ? [['#fde047', 'the digit we focus on'], ['#bfdbfe', 'base (same line)'], ['#fde68a', 'tops'], ['#fee2e2', 'cells that see both tops'], ['#ef4444', 'eliminated']]
       : t.fish
       ? [['#fde047', 'the digit we focus on'], ['#bfdbfe', 'pattern cells'], ['#4ade80', 'pattern candidates'], ['#fef3c7', 'lines being cleared'], ['#ef4444', 'eliminated']]
@@ -369,7 +444,7 @@
 
   function renderLearn() {
     const st = learn.steps[learn.step];
-    renderBoard($('learn-board-wrap'), learn.state, { deco: st.deco, focus: st.focus });
+    renderBoard($('learn-board-wrap'), st.state || learn.state, { deco: st.deco, focus: st.focus });
     $('step-count').textContent = `Step ${learn.step + 1} of ${learn.steps.length}`;
     $('step-text').innerHTML = st.text;
     $('step-prev').disabled = learn.step === 0;
@@ -386,7 +461,7 @@
       union: new Set(p.insts.flatMap(x => x.elims.map(e => key(e.cell, e.digit))))
     });
     const t = TECHS[tech];
-    $('task').innerHTML = `<p><b>Find a ${t.title}</b> and click every candidate it eliminates. Click again to unmark. Then press <b>Check</b>.</p>` +
+    $('task').innerHTML = `<p><b>Find ${t.article || 'a'} ${t.title}</b> and click every candidate it eliminates. Click again to unmark. Then press <b>Check</b>.</p>` +
       (p.insts.length > 1 ? `<p style="color:var(--muted);font-size:.9rem">There's more than one ${t.title} on this board. Finding any one of them counts.</p>` : '');
     $('bival-label').textContent = tech === 'xyzwing' ? 'Highlight 2-candidate (green) and 3-candidate (blue) cells' : 'Highlight bivalue cells';
     hideFeedback();
@@ -445,7 +520,7 @@
     if (wrong.length) {
       prac.wrong = new Set(wrong);
       renderPractice();
-      feedback('bad', `<p>${wrong.length === 1 ? 'One mark' : wrong.length + ' marks'} (dark red) can't be removed by a ${t.title} here. Unmark ${wrong.length === 1 ? 'it' : 'them'} and look again.</p>`);
+      feedback('bad', `<p>${wrong.length === 1 ? 'One mark' : wrong.length + ' marks'} (dark red) can't be removed by ${t.article || 'a'} ${t.title} here. Unmark ${wrong.length === 1 ? 'it' : 'them'} and look again.</p>`);
       return;
     }
     const complete = prac.insts.find(x => x.elims.every(e => prac.marked.has(key(e.cell, e.digit))));

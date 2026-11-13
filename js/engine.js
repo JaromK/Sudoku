@@ -1,5 +1,5 @@
 // Sudoku logic engine: generation, candidate tracking, basic solving and
-// pattern finders for X-Wing, Swordfish, Skyscraper, Y-Wing and XYZ-Wing.
+// pattern finders for X-Wing, Swordfish, Skyscraper, Y-Wing, XYZ-Wing and If-Then.
 // Works in the browser (window.SudokuEngine) and in Node (module.exports).
 (function (root, factory) {
   const E = factory();
@@ -340,12 +340,64 @@
     return res;
   }
 
+  // If-Then (what-if / contradiction): in a two-candidate cell, assume one digit and follow only
+  // forced moves (naked and hidden singles). If that ends in a dead end, the digit is wrong.
+  const unitLabel = u => (u < 9 ? 'row ' + (u + 1) : u < 18 ? 'column ' + (u - 8) : 'box ' + (u - 17));
+  function followSingles(values, cands, maxMoves) {
+    const v = values.slice(), c = cands.slice(), trail = [];
+    for (;;) {
+      for (let i = 0; i < 81; i++) if (!v[i] && !c[i]) return { trail, dead: { cell: i, why: `${cellName(i)} has no candidates left` } };
+      for (let u = 0; u < 27; u++) {
+        for (let d = 1; d <= 9; d++) {
+          if (UNITS[u].some(i => v[i] === d) || UNITS[u].some(i => c[i] & (1 << d))) continue;
+          return { trail, dead: { unit: u, digit: d, why: `${unitLabel(u)} has no place left for ${d === 8 ? 'an' : 'a'} ${d}` } };
+        }
+      }
+      if (trail.length >= maxMoves) return null;
+      let move = null;
+      for (let i = 0; i < 81 && !move; i++) {
+        if (!v[i] && popcount(c[i]) === 1) move = { cell: i, d: digitsOf(c[i])[0], why: 'it is the only candidate left in the cell' };
+      }
+      for (let u = 0; u < 27 && !move; u++) {
+        for (let d = 1; d <= 9 && !move; d++) {
+          if (UNITS[u].some(i => v[i] === d)) continue;
+          const spots = UNITS[u].filter(i => c[i] & (1 << d));
+          if (spots.length === 1) move = { cell: spots[0], d, why: `it's the only place for ${d} in ${unitLabel(u)}` };
+        }
+      }
+      if (!move) return null;
+      const removed = PEERS[move.cell].filter(p => !v[p] && (c[p] & (1 << move.d)));
+      v[move.cell] = move.d; c[move.cell] = 0;
+      for (const p of removed) c[p] &= ~(1 << move.d);
+      trail.push(move);
+    }
+  }
+  function findIfThen(s, maxMoves) {
+    maxMoves = maxMoves || 8;
+    const res = [];
+    for (let P = 0; P < 81; P++) {
+      if (s.values[P] || popcount(s.cands[P]) !== 2) continue;
+      const ds = digitsOf(s.cands[P]);
+      for (const d of ds) {
+        const v = s.values.slice(), c = s.cands.slice();
+        v[P] = d; c[P] = 0;
+        for (const p of PEERS[P]) c[p] &= ~(1 << d);
+        const r = followSingles(v, c, maxMoves);
+        if (!r) continue;
+        res.push({ type: 'ifthen', pivot: P, digit: d, other: ds.find(x => x !== d), trail: r.trail, dead: r.dead,
+          cells: [P, ...r.trail.map(t => t.cell)], elims: [{ cell: P, digit: d }] });
+      }
+    }
+    return res.sort((a, b) => a.trail.length - b.trail.length);
+  }
+
   const FINDERS = {
     xwing: s => findFish(s, 2),
     swordfish: s => findFish(s, 3),
     ywing: findYWing,
     xyzwing: findXYZWing,
     skyscraper: findSkyscraper,
+    ifthen: s => findIfThen(s, 30),
   };
 
   // ---------- validity-preserving shuffles ----------
@@ -368,8 +420,8 @@
   const stringify = g => g.map(v => v || '.').join('');
 
   return {
-    ROW_OF, COL_OF, BOX_OF, ROWS, COLS, BOXES, PEERS, sees, popcount, digitsOf, cellName,
+    ROW_OF, COL_OF, BOX_OF, ROWS, COLS, BOXES, UNITS, PEERS, sees, popcount, digitsOf, cellName,
     solve, generatePuzzle, makeState, cloneState, applyBasics, isSolved,
-    findFish, findYWing, findXYZWing, findSkyscraper, FINDERS, randomTransform, parse, stringify, shuffle,
+    findFish, findYWing, findXYZWing, findSkyscraper, findIfThen, FINDERS, randomTransform, parse, stringify, shuffle,
   };
 });
